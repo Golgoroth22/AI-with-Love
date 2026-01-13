@@ -1,2 +1,4 @@
 *.bat
 /gradlew
+.gradle/
+app/build/

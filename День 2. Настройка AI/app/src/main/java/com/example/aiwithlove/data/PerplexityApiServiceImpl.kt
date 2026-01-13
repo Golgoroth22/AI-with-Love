@@ -46,12 +46,14 @@ class PerplexityApiServiceImpl(
     override suspend fun sendMessage(
         messages: List<ChatMessage>,
         model: String,
+        responseFormat: ResponseFormat?,
     ): Result<ChatCompletionResponse> {
         return try {
             val request =
                 ChatCompletionRequest(
                     model = model,
                     messages = messages,
+                    response_format = responseFormat,
                 )
 
             val requestBody =

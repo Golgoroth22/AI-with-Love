@@ -4,5 +4,6 @@ interface PerplexityApiService {
     suspend fun sendMessage(
         messages: List<ChatMessage>,
         model: String = "sonar-pro",
+        responseFormat: ResponseFormat? = null,
     ): Result<ChatCompletionResponse>
 }

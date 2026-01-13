@@ -3,6 +3,9 @@ package com.example.aiwithlove.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.aiwithlove.data.PerplexityApiService
+import com.example.aiwithlove.data.PerplexitySchemaHelper
+import com.example.aiwithlove.data.ResponseFormat
+import com.example.aiwithlove.data.JsonSchema
 import com.example.aiwithlove.util.ILoggable
 import com.example.aiwithlove.util.runAndCatch
 import kotlinx.coroutines.Dispatchers
@@ -11,6 +14,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import com.example.aiwithlove.data.ChatMessage as ApiChatMessage
 
 class ChatViewModel(
@@ -51,7 +56,23 @@ class ChatViewModel(
 
         viewModelScope.launch(Dispatchers.IO) {
             runAndCatch {
-                val apiMessages =
+                val systemPrompt = """Ответь строго одним JSON-объектом. Никаких комментариев, пояснений, форматирования Markdown. Только такой формат:
+{
+    "question": "Мой вопрос",
+    "title": "Кратко о чем вопрос",
+    "answer": "Ответ",
+    "tags": ["тэг1", "тэг2"],
+    "date_time": "Текущая дата и время"
+}
+
+Правила:
+- "question" - полный вопрос который я задал
+- "title" - кратко о чем мой вопрос
+- "answer" - твой полный ответ
+- "tags" - список из 1-2 тэгов о чем этот вопрос
+- "date_time" - Текущая дата и время"""
+
+                val userMessages =
                     _messages.value
                         .drop(1)
                         .filter { it.isFromUser || it.text != "Думаю..." }
@@ -62,17 +83,47 @@ class ChatViewModel(
                             )
                         }
 
+                val apiMessages = listOf(
+                    ApiChatMessage(
+                        role = "system",
+                        content = systemPrompt,
+                    ),
+                ) + userMessages
+
+                val responseFormat = ResponseFormat(
+                    type = "json_schema",
+                    json_schema = JsonSchema(
+                        schema = PerplexitySchemaHelper.createResponseSchema(),
+                    ),
+                )
+
                 logD("Отправка ${apiMessages.size} сообщений в API")
-                perplexityService.sendMessage(apiMessages)
+                perplexityService.sendMessage(apiMessages, responseFormat = responseFormat)
             }.onSuccess { result ->
                 result
                     .onSuccess { response ->
-                        val fullResponse =
+                        val rawResponse =
                             response.choices
                                 .firstOrNull()
                                 ?.message
                                 ?.content
                                 ?: "Извините, не удалось получить ответ."
+                        
+                        val fullResponse = try {
+                            val json = Json { 
+                                prettyPrint = true
+                                ignoreUnknownKeys = true
+                            }
+                            val jsonElement = json.parseToJsonElement(rawResponse)
+                            if (jsonElement is JsonObject) {
+                                json.encodeToString(JsonObject.serializer(), jsonElement)
+                            } else {
+                                rawResponse
+                            }
+                        } catch (e: Exception) {
+                            rawResponse
+                        }
+                        
                         logD("Успешно получен ответ от Perplexity API")
 
                         val currentMessages = _messages.value.toMutableList()
