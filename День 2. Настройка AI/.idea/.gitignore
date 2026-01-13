@@ -1,0 +1,11 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+.idea/
+.gradle/
+/vcs.xml
+/runConfigurations.xml
+/migrations.xml
+/misc.xml
+/AndroidProjectSystem.xml
+/deploymentTargetSelector.xml
