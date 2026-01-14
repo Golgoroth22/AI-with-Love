@@ -9,3 +9,5 @@ gradle/wrapper/gradle-wrapper.jar
 # Из app/src/main/res/xml/.gitignore
 app/src/main/res/xml/backup_rules.xml
 app/src/main/res/xml/data_extraction_rules.xml
+.idea/
+.gradle/

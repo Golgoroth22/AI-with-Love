@@ -21,6 +21,7 @@ class PerplexityApiServiceImpl(
     private val apiKey: String,
 ) : PerplexityApiService,
     ILoggable {
+
     private val jsonForResponse =
         Json {
             ignoreUnknownKeys = true
@@ -47,6 +48,7 @@ class PerplexityApiServiceImpl(
         messages: List<ChatMessage>,
         model: String,
         responseFormat: ResponseFormat?,
+        maxTokens: Int?
     ): Result<ChatCompletionResponse> {
         return try {
             val request =
@@ -54,6 +56,7 @@ class PerplexityApiServiceImpl(
                     model = model,
                     messages = messages,
                     response_format = responseFormat,
+                    max_tokens = maxTokens
                 )
 
             val requestBody =

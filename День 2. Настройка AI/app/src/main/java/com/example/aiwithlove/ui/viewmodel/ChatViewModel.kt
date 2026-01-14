@@ -2,10 +2,10 @@ package com.example.aiwithlove.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.aiwithlove.data.JsonSchema
 import com.example.aiwithlove.data.PerplexityApiService
 import com.example.aiwithlove.data.PerplexitySchemaHelper
 import com.example.aiwithlove.data.ResponseFormat
-import com.example.aiwithlove.data.JsonSchema
 import com.example.aiwithlove.util.ILoggable
 import com.example.aiwithlove.util.runAndCatch
 import kotlinx.coroutines.Dispatchers
@@ -19,17 +19,18 @@ import kotlinx.serialization.json.JsonObject
 import com.example.aiwithlove.data.ChatMessage as ApiChatMessage
 
 class ChatViewModel(
-    private val perplexityService: PerplexityApiService,
+    private val perplexityService: PerplexityApiService
 ) : ViewModel(),
     ILoggable {
+
     private val _messages =
         MutableStateFlow(
             listOf(
                 Message(
                     text = "Привет! Я ваш ИИ-помощник. Чем могу помочь?",
-                    isFromUser = false,
-                ),
-            ),
+                    isFromUser = false
+                )
+            )
         )
     val messages: StateFlow<List<Message>> = _messages.asStateFlow()
 
@@ -42,36 +43,20 @@ class ChatViewModel(
         _messages.value = _messages.value +
             Message(
                 text = userMessage,
-                isFromUser = true,
+                isFromUser = true
             )
         _isLoading.value = true
 
         val thinkingMessage =
             Message(
                 text = "Думаю...",
-                isFromUser = false,
+                isFromUser = false
             )
         _messages.value = _messages.value + thinkingMessage
         val thinkingMessageIndex = _messages.value.size - 1
 
         viewModelScope.launch(Dispatchers.IO) {
             runAndCatch {
-                val systemPrompt = """Ответь строго одним JSON-объектом. Никаких комментариев, пояснений, форматирования Markdown. Только такой формат:
-{
-    "question": "Мой вопрос",
-    "title": "Кратко о чем вопрос",
-    "answer": "Ответ",
-    "tags": ["тэг1", "тэг2"],
-    "date_time": "Текущая дата и время"
-}
-
-Правила:
-- "question" - полный вопрос который я задал
-- "title" - кратко о чем мой вопрос
-- "answer" - твой полный ответ
-- "tags" - список из 1-2 тэгов о чем этот вопрос
-- "date_time" - Текущая дата и время"""
-
                 val userMessages =
                     _messages.value
                         .drop(1)
@@ -79,26 +64,40 @@ class ChatViewModel(
                         .map { msg ->
                             ApiChatMessage(
                                 role = if (msg.isFromUser) "user" else "assistant",
-                                content = msg.text,
+                                content = msg.text
                             )
                         }
 
-                val apiMessages = listOf(
-                    ApiChatMessage(
-                        role = "system",
-                        content = systemPrompt,
-                    ),
-                ) + userMessages
+                val apiMessages =
+                    listOf(
+                        ApiChatMessage(
+                            role = "system",
+                            content = """Ответь JSON-объектом:
+{
+    "question": "вопрос",
+    "title": "кратко о чем",
+    "answer": "ответ",
+    "tags": ["тэг1", "тэг2"],
+    "date_time": "дата и время"
+}"""
+                        )
+                    ) + userMessages
 
-                val responseFormat = ResponseFormat(
-                    type = "json_schema",
-                    json_schema = JsonSchema(
-                        schema = PerplexitySchemaHelper.createResponseSchema(),
-                    ),
-                )
+                val responseFormat =
+                    ResponseFormat(
+                        type = "json_schema",
+                        json_schema =
+                            JsonSchema(
+                                schema = PerplexitySchemaHelper.createResponseSchema()
+                            )
+                    )
 
                 logD("Отправка ${apiMessages.size} сообщений в API")
-                perplexityService.sendMessage(apiMessages, responseFormat = responseFormat)
+                perplexityService.sendMessage(
+                    messages = apiMessages,
+                    responseFormat = responseFormat,
+                    maxTokens = 1000
+                )
             }.onSuccess { result ->
                 result
                     .onSuccess { response ->
@@ -108,22 +107,25 @@ class ChatViewModel(
                                 ?.message
                                 ?.content
                                 ?: "Извините, не удалось получить ответ."
-                        
-                        val fullResponse = try {
-                            val json = Json { 
-                                prettyPrint = true
-                                ignoreUnknownKeys = true
-                            }
-                            val jsonElement = json.parseToJsonElement(rawResponse)
-                            if (jsonElement is JsonObject) {
-                                json.encodeToString(JsonObject.serializer(), jsonElement)
-                            } else {
+
+                        val fullResponse =
+                            try {
+                                val json =
+                                    Json {
+                                        prettyPrint = true
+                                        ignoreUnknownKeys = true
+                                    }
+                                val jsonElement = json.parseToJsonElement(rawResponse)
+                                if (jsonElement is JsonObject) {
+                                    json.encodeToString(JsonObject.serializer(), jsonElement)
+                                } else {
+                                    rawResponse
+                                }
+                            } catch (e: Exception) {
+                                logE("Невозможно преобразовать ответ от Perplexity API в JSON", e)
                                 rawResponse
                             }
-                        } catch (e: Exception) {
-                            rawResponse
-                        }
-                        
+
                         logD("Успешно получен ответ от Perplexity API")
 
                         val currentMessages = _messages.value.toMutableList()
@@ -131,7 +133,7 @@ class ChatViewModel(
                             currentMessages[thinkingMessageIndex] =
                                 Message(
                                     text = "",
-                                    isFromUser = false,
+                                    isFromUser = false
                                 )
                             _messages.value = currentMessages
                         }
@@ -144,7 +146,7 @@ class ChatViewModel(
                             currentMessages[thinkingMessageIndex] =
                                 Message(
                                     text = "Ошибка: ${error.message ?: "Неизвестная ошибка"}",
-                                    isFromUser = false,
+                                    isFromUser = false
                                 )
                             _messages.value = currentMessages
                         }
@@ -157,7 +159,7 @@ class ChatViewModel(
                     currentMessages[thinkingMessageIndex] =
                         Message(
                             text = "Ошибка при отправке запроса: ${error.message}",
-                            isFromUser = false,
+                            isFromUser = false
                         )
                     _messages.value = currentMessages
                 }
@@ -169,12 +171,12 @@ class ChatViewModel(
     data class Message(
         val text: String,
         val isFromUser: Boolean,
-        val timestamp: Long = System.currentTimeMillis(),
+        val timestamp: Long = System.currentTimeMillis()
     )
 
     private suspend fun typewriterEffect(
         fullText: String,
-        messageIndex: Int,
+        messageIndex: Int
     ) {
         val charsPerDelay = 3
         val delayMs = 30L

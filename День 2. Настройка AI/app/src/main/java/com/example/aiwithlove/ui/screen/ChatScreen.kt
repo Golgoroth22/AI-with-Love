@@ -92,7 +92,7 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                     TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                         titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ),
+                    )
             )
         },
     ) { paddingValues ->
@@ -100,7 +100,7 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .padding(paddingValues),
+                    .padding(paddingValues)
         ) {
             LazyColumn(
                 state = listState,
@@ -110,7 +110,7 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.background),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(messages) { message ->
                     MessageBubble(message = message)
@@ -125,7 +125,7 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .imePadding(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.Bottom,
+                verticalAlignment = Alignment.Bottom
             ) {
                 OutlinedTextField(
                     value = inputText,
@@ -143,7 +143,7 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                         ),
                     singleLine = false,
                     maxLines = 4,
-                    enabled = !isLoading,
+                    enabled = !isLoading
                 )
                 FloatingActionButton(
                     onClick = {
@@ -156,18 +156,18 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                     },
                     modifier = Modifier.size(56.dp),
                     containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
                 ) {
                     if (isLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             color = MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.dp,
+                            strokeWidth = 2.dp
                         )
                     } else {
                         Icon(
                             imageVector = Icons.Default.Send,
-                            contentDescription = "Отправить",
+                            contentDescription = "Отправить"
                         )
                     }
                 }
@@ -180,7 +180,7 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
 fun MessageBubble(message: ChatViewModel.Message) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (message.isFromUser) Arrangement.End else Arrangement.Start,
+        horizontalArrangement = if (message.isFromUser) Arrangement.End else Arrangement.Start
     ) {
         Box(
             modifier =
@@ -191,7 +191,7 @@ fun MessageBubble(message: ChatViewModel.Message) {
                             topStart = 16.dp,
                             topEnd = 16.dp,
                             bottomStart = if (message.isFromUser) 16.dp else 4.dp,
-                            bottomEnd = if (message.isFromUser) 4.dp else 16.dp,
+                            bottomEnd = if (message.isFromUser) 4.dp else 16.dp
                         ),
                     ).background(
                         if (message.isFromUser) {
@@ -199,7 +199,7 @@ fun MessageBubble(message: ChatViewModel.Message) {
                         } else {
                             MaterialTheme.colorScheme.surfaceVariant
                         },
-                    ).padding(horizontal = 16.dp, vertical = 12.dp),
+                    ).padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Text(
                 text = message.text,
@@ -210,7 +210,7 @@ fun MessageBubble(message: ChatViewModel.Message) {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 fontSize = 16.sp,
-                lineHeight = 20.sp,
+                lineHeight = 20.sp
             )
         }
     }
