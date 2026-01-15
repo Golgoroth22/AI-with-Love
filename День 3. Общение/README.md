@@ -9,5 +9,5 @@
 - `Результат`: Вы общаетесь и модель выдает вам какой-то результат на основе вашего общения (например, ТЗ)
 - `Формат`: Видео
 
-[Видео результата](https://drive.google.com/file/d/1tB1dlg86RuD9mJE5cPZCLla07z6PKE5V/view?usp=sharing)
+[Видео результата](https://drive.google.com/file/d/16pjAMyRSFV2w-m7Rt8Qag9KFyHjAYS8d/view?usp=sharing)
 

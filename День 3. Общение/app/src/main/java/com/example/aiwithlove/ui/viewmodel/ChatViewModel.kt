@@ -2,10 +2,7 @@ package com.example.aiwithlove.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.aiwithlove.data.JsonSchema
 import com.example.aiwithlove.data.PerplexityApiService
-import com.example.aiwithlove.data.PerplexitySchemaHelper
-import com.example.aiwithlove.data.ResponseFormat
 import com.example.aiwithlove.util.ILoggable
 import com.example.aiwithlove.util.runAndCatch
 import kotlinx.coroutines.Dispatchers
@@ -14,8 +11,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import com.example.aiwithlove.data.ChatMessage as ApiChatMessage
 
 class ChatViewModel(
@@ -72,31 +67,21 @@ class ChatViewModel(
                     listOf(
                         ApiChatMessage(
                             role = "system",
-                            content = """Ответь JSON-объектом:
-{
-    "question": "вопрос",
-    "title": "кратко о чем",
-    "answer": "ответ",
-    "tags": ["тэг1", "тэг2"],
-    "date_time": "дата и время"
-}"""
+                            content = """Ты эксперт-консультант. Собираешь требования через 5-7 уточняющих вопросов, затем даешь экспертный совет.
+
+Правила:
+1. Задавай по одному вопросу за раз (максимум 5-7 вопросов).
+2. Спрашивай: что, как, где, когда, ресурсы, ограничения.
+3. После сбора информации дай экспертный совет в естественной форме (без заголовков "ТЗ", "Задача", "Требования").
+4. После совета остановись, не задавай больше вопросов.
+5. Только текст, без JSON."""
                         )
                     ) + userMessages
-
-                val responseFormat =
-                    ResponseFormat(
-                        type = "json_schema",
-                        json_schema =
-                            JsonSchema(
-                                schema = PerplexitySchemaHelper.createResponseSchema()
-                            )
-                    )
 
                 logD("Отправка ${apiMessages.size} сообщений в API")
                 perplexityService.sendMessage(
                     messages = apiMessages,
-                    responseFormat = responseFormat,
-                    maxTokens = 1000
+                    maxTokens = 2000
                 )
             }.onSuccess { result ->
                 result
@@ -108,25 +93,21 @@ class ChatViewModel(
                                 ?.content
                                 ?: "Извините, не удалось получить ответ."
 
-                        val fullResponse =
-                            try {
-                                val json =
-                                    Json {
-                                        prettyPrint = true
-                                        ignoreUnknownKeys = true
-                                    }
-                                val jsonElement = json.parseToJsonElement(rawResponse)
-                                if (jsonElement is JsonObject) {
-                                    json.encodeToString(JsonObject.serializer(), jsonElement)
-                                } else {
-                                    rawResponse
-                                }
-                            } catch (e: Exception) {
-                                logE("Невозможно преобразовать ответ от Perplexity API в JSON", e)
-                                rawResponse
-                            }
+                        val fullResponse = rawResponse.trim()
 
                         logD("Успешно получен ответ от Perplexity API")
+                        
+                        val isTaskComplete = fullResponse.length > 200 && 
+                                           !fullResponse.trimEnd().endsWith("?") &&
+                                           (fullResponse.contains("можно") || 
+                                            fullResponse.contains("рекомендую") ||
+                                            fullResponse.contains("советую") ||
+                                            fullResponse.contains("инструкция") ||
+                                            fullResponse.contains("шаг"))
+                        
+                        if (isTaskComplete) {
+                            logD("Модель завершила сбор требований и выдала экспертный совет")
+                        }
 
                         val currentMessages = _messages.value.toMutableList()
                         if (thinkingMessageIndex < currentMessages.size) {
