@@ -18,6 +18,13 @@ class ChatViewModel(
 ) : ViewModel(),
     ILoggable {
 
+    private val _selectedCharacter = MutableStateFlow(TMNTCharacter.SPLINTER)
+    val selectedCharacter: StateFlow<TMNTCharacter> = _selectedCharacter.asStateFlow()
+
+    fun setSelectedCharacter(character: TMNTCharacter) {
+        _selectedCharacter.value = character
+    }
+
     private val _messages =
         MutableStateFlow(
             listOf(
@@ -63,18 +70,13 @@ class ChatViewModel(
                             )
                         }
 
+                val systemPrompt = _selectedCharacter.value.getSystemPrompt()
+
                 val apiMessages =
                     listOf(
                         ApiChatMessage(
                             role = "system",
-                            content = """Ты эксперт-консультант. Собираешь требования через 5-7 уточняющих вопросов, затем даешь экспертный совет.
-
-Правила:
-1. Задавай по одному вопросу за раз (максимум 5-7 вопросов).
-2. Спрашивай: что, как, где, когда, ресурсы, ограничения.
-3. После сбора информации дай экспертный совет в естественной форме (без заголовков "ТЗ", "Задача", "Требования").
-4. После совета остановись, не задавай больше вопросов.
-5. Только текст, без JSON."""
+                            content = systemPrompt
                         )
                     ) + userMessages
 
@@ -96,18 +98,6 @@ class ChatViewModel(
                         val fullResponse = rawResponse.trim()
 
                         logD("Успешно получен ответ от Perplexity API")
-                        
-                        val isTaskComplete = fullResponse.length > 200 && 
-                                           !fullResponse.trimEnd().endsWith("?") &&
-                                           (fullResponse.contains("можно") || 
-                                            fullResponse.contains("рекомендую") ||
-                                            fullResponse.contains("советую") ||
-                                            fullResponse.contains("инструкция") ||
-                                            fullResponse.contains("шаг"))
-                        
-                        if (isTaskComplete) {
-                            logD("Модель завершила сбор требований и выдала экспертный совет")
-                        }
 
                         val currentMessages = _messages.value.toMutableList()
                         if (thinkingMessageIndex < currentMessages.size) {
