@@ -5,6 +5,7 @@ interface PerplexityApiService {
         messages: List<ChatMessage>,
         model: String = "sonar",
         responseFormat: ResponseFormat? = null,
-        maxTokens: Int?
+        maxTokens: Int? = null,
+        temperature: Double? = null
     ): Result<ChatCompletionResponse>
 }

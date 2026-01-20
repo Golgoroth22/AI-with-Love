@@ -18,13 +18,6 @@ class ChatViewModel(
 ) : ViewModel(),
     ILoggable {
 
-    private val _selectedCharacter = MutableStateFlow(TMNTCharacter.SPLINTER)
-    val selectedCharacter: StateFlow<TMNTCharacter> = _selectedCharacter.asStateFlow()
-
-    fun setSelectedCharacter(character: TMNTCharacter) {
-        _selectedCharacter.value = character
-    }
-
     private val _messages =
         MutableStateFlow(
             listOf(
@@ -38,6 +31,13 @@ class ChatViewModel(
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    private val _selectedTemperature = MutableStateFlow(0.0)
+    val selectedTemperature: StateFlow<Double> = _selectedTemperature.asStateFlow()
+
+    fun setTemperature(temperature: Double) {
+        _selectedTemperature.value = temperature
+    }
 
     fun sendMessage(userMessage: String) {
         if (userMessage.isBlank() || _isLoading.value) return
@@ -70,20 +70,11 @@ class ChatViewModel(
                             )
                         }
 
-                val systemPrompt = _selectedCharacter.value.getSystemPrompt()
-
-                val apiMessages =
-                    listOf(
-                        ApiChatMessage(
-                            role = "system",
-                            content = systemPrompt
-                        )
-                    ) + userMessages
-
-                logD("Отправка ${apiMessages.size} сообщений в API")
+                logD("Отправка ${userMessages.size} сообщений в API")
                 perplexityService.sendMessage(
-                    messages = apiMessages,
-                    maxTokens = 2000
+                    messages = userMessages,
+                    maxTokens = 1000,
+                    temperature = _selectedTemperature.value
                 )
             }.onSuccess { result ->
                 result
@@ -176,3 +167,5 @@ class ChatViewModel(
         }
     }
 }
+
+// Переформулируй этот текст 5 раз разными стилями: Наша жизнь есть то, что мы думаем о ней.

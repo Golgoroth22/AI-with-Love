@@ -30,7 +30,8 @@ data class ChatCompletionRequest(
     val model: String = "sonar",
     val messages: List<ChatMessage>,
     val response_format: ResponseFormat? = null,
-    val max_tokens: Int? = 1000
+    val max_tokens: Int? = 1500,
+    val temperature: Double? = null
 )
 
 @Serializable

@@ -1,7 +1,6 @@
 package com.example.aiwithlove.ui.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,12 +17,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,7 +49,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.aiwithlove.ui.theme.AIWithLoveTheme
 import com.example.aiwithlove.ui.viewmodel.ChatViewModel
-import com.example.aiwithlove.ui.viewmodel.TMNTCharacter
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -58,11 +56,13 @@ import org.koin.androidx.compose.koinViewModel
 fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
-    val selectedCharacter by viewModel.selectedCharacter.collectAsState()
+    val selectedTemperature by viewModel.selectedTemperature.collectAsState()
     var inputText by remember { mutableStateOf("") }
-    var showCharacterMenu by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val keyboardController = LocalSoftwareKeyboardController.current
+
+    val temperatureOptions = listOf(0.0, 0.9, 1.9)
+    var expanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -88,19 +88,66 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Чат with Love",
-                        fontWeight = FontWeight.Bold,
-                    )
-                },
-                colors =
-                    TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-            )
+            Column {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "Чат with Love",
+                            fontWeight = FontWeight.Bold,
+                        )
+                    },
+                    colors =
+                        TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                )
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    ExposedDropdownMenuBox(
+                        expanded = expanded,
+                        onExpandedChange = { expanded = !expanded }
+                    ) {
+                        OutlinedTextField(
+                            value = selectedTemperature.toString(),
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                            },
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .menuAnchor(),
+                            label = { Text("Температура") },
+                            colors =
+                                OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                )
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            temperatureOptions.forEach { temperature ->
+                                DropdownMenuItem(
+                                    text = { Text(temperature.toString()) },
+                                    onClick = {
+                                        viewModel.setTemperature(temperature)
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         },
     ) { paddingValues ->
         Column(
@@ -109,93 +156,6 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                     .fillMaxSize()
                     .padding(paddingValues)
         ) {
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surface)
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-            ) {
-                Box {
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    if (showCharacterMenu) {
-                                        MaterialTheme.colorScheme.primaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.surfaceVariant
-                                    }
-                                )
-                                .clickable { showCharacterMenu = true }
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(
-                                text = "Персонаж:",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = selectedCharacter.displayName,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color =
-                                    if (showCharacterMenu) {
-                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    }
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = "Выбрать персонажа",
-                            modifier = Modifier.size(20.dp),
-                            tint =
-                                if (showCharacterMenu) {
-                                    MaterialTheme.colorScheme.onPrimaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = showCharacterMenu,
-                        onDismissRequest = { showCharacterMenu = false },
-                        modifier = Modifier.fillMaxWidth(0.85f)
-                    ) {
-                        TMNTCharacter.values().forEach { character ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = character.displayName,
-                                        fontWeight =
-                                            if (character == selectedCharacter) {
-                                                FontWeight.SemiBold
-                                            } else {
-                                                FontWeight.Normal
-                                            }
-                                    )
-                                },
-                                onClick = {
-                                    viewModel.setSelectedCharacter(character)
-                                    showCharacterMenu = false
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-                }
-            }
             LazyColumn(
                 state = listState,
                 modifier =
@@ -287,13 +247,15 @@ fun MessageBubble(message: ChatViewModel.Message) {
                             bottomStart = if (message.isFromUser) 16.dp else 4.dp,
                             bottomEnd = if (message.isFromUser) 4.dp else 16.dp
                         ),
-                    ).background(
+                    )
+                    .background(
                         if (message.isFromUser) {
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.surfaceVariant
                         },
-                    ).padding(horizontal = 16.dp, vertical = 12.dp)
+                    )
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Text(
                 text = message.text,

@@ -48,7 +48,8 @@ class PerplexityApiServiceImpl(
         messages: List<ChatMessage>,
         model: String,
         responseFormat: ResponseFormat?,
-        maxTokens: Int?
+        maxTokens: Int?,
+        temperature: Double?
     ): Result<ChatCompletionResponse> {
         return try {
             val request =
@@ -56,7 +57,8 @@ class PerplexityApiServiceImpl(
                     model = model,
                     messages = messages,
                     response_format = responseFormat,
-                    max_tokens = maxTokens
+                    max_tokens = maxTokens,
+                    temperature = temperature
                 )
 
             val requestBody =
