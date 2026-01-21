@@ -54,7 +54,16 @@ data class Choice(
 data class Usage(
     val prompt_tokens: Int,
     val completion_tokens: Int,
-    val total_tokens: Int
+    val total_tokens: Int,
+    val cost: Cost? = null
+)
+
+@Serializable
+data class Cost(
+    val input_tokens_cost: Double = 0.0,
+    val output_tokens_cost: Double = 0.0,
+    val request_cost: Double = 0.0,
+    val total_cost: Double = 0.0
 )
 
 @Serializable
@@ -68,66 +77,3 @@ data class ErrorDetail(
     val type: String? = null,
     val code: String? = null
 )
-
-object PerplexitySchemaHelper {
-    fun createResponseSchema(): JsonObject =
-        buildJsonObject {
-            put("type", "object")
-            put(
-                "properties",
-                buildJsonObject {
-                    put(
-                        "question",
-                        buildJsonObject {
-                            put("type", "string")
-                            put("description", "Полный вопрос который пользователь задал")
-                        }
-                    )
-                    put(
-                        "title",
-                        buildJsonObject {
-                            put("type", "string")
-                            put("description", "Кратко о чем вопрос")
-                        }
-                    )
-                    put(
-                        "answer",
-                        buildJsonObject {
-                            put("type", "string")
-                            put("description", "Полный ответ на вопрос")
-                        }
-                    )
-                    put(
-                        "tags",
-                        buildJsonObject {
-                            put("type", "array")
-                            put("description", "Список из 1-2 тэгов о чем этот вопрос")
-                            put(
-                                "items",
-                                buildJsonObject {
-                                    put("type", "string")
-                                }
-                            )
-                        }
-                    )
-                    put(
-                        "date_time",
-                        buildJsonObject {
-                            put("type", "string")
-                            put("description", "Текущая дата и время")
-                        }
-                    )
-                },
-            )
-            put(
-                "required",
-                buildJsonArray {
-                    add(JsonPrimitive("question"))
-                    add(JsonPrimitive("title"))
-                    add(JsonPrimitive("answer"))
-                    add(JsonPrimitive("tags"))
-                    add(JsonPrimitive("date_time"))
-                }
-            )
-        }
-}

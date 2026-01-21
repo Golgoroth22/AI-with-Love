@@ -32,11 +32,11 @@ class ChatViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val _selectedTemperature = MutableStateFlow(0.0)
-    val selectedTemperature: StateFlow<Double> = _selectedTemperature.asStateFlow()
+    private val _selectedModel = MutableStateFlow("sonar")
+    val selectedModel: StateFlow<String> = _selectedModel.asStateFlow()
 
-    fun setTemperature(temperature: Double) {
-        _selectedTemperature.value = temperature
+    fun setModel(model: String) {
+        _selectedModel.value = model
     }
 
     fun sendMessage(userMessage: String) {
@@ -58,6 +58,7 @@ class ChatViewModel(
         val thinkingMessageIndex = _messages.value.size - 1
 
         viewModelScope.launch(Dispatchers.IO) {
+            val startTime = System.currentTimeMillis()
             runAndCatch {
                 val userMessages =
                     _messages.value
@@ -73,8 +74,8 @@ class ChatViewModel(
                 logD("Отправка ${userMessages.size} сообщений в API")
                 perplexityService.sendMessage(
                     messages = userMessages,
-                    maxTokens = 1000,
-                    temperature = _selectedTemperature.value
+                    model = _selectedModel.value,
+                    maxTokens = 1000
                 )
             }.onSuccess { result ->
                 result
@@ -87,6 +88,12 @@ class ChatViewModel(
                                 ?: "Извините, не удалось получить ответ."
 
                         val fullResponse = rawResponse.trim()
+                        val endTime = System.currentTimeMillis()
+                        val responseTime = endTime - startTime
+
+                        val usage = response.usage
+                        val totalTokens = usage?.total_tokens ?: 0
+                        val totalCost = usage?.cost?.total_cost ?: 0.0
 
                         logD("Успешно получен ответ от Perplexity API")
 
@@ -95,12 +102,15 @@ class ChatViewModel(
                             currentMessages[thinkingMessageIndex] =
                                 Message(
                                     text = "",
-                                    isFromUser = false
+                                    isFromUser = false,
+                                    responseTime = responseTime,
+                                    tokens = totalTokens,
+                                    cost = totalCost
                                 )
                             _messages.value = currentMessages
                         }
 
-                        typewriterEffect(fullResponse, thinkingMessageIndex)
+                        typewriterEffect(fullResponse, thinkingMessageIndex, responseTime, totalTokens, totalCost)
                     }.onFailure { error ->
                         logE("Ошибка при получении ответа от Perplexity API", error)
                         val currentMessages = _messages.value.toMutableList()
@@ -133,12 +143,18 @@ class ChatViewModel(
     data class Message(
         val text: String,
         val isFromUser: Boolean,
-        val timestamp: Long = System.currentTimeMillis()
+        val timestamp: Long = System.currentTimeMillis(),
+        val responseTime: Long? = null,
+        val tokens: Int? = null,
+        val cost: Double? = null
     )
 
     private suspend fun typewriterEffect(
         fullText: String,
-        messageIndex: Int
+        messageIndex: Int,
+        responseTime: Long,
+        tokens: Int,
+        cost: Double
     ) {
         val charsPerDelay = 3
         val delayMs = 30L
@@ -157,7 +173,13 @@ class ChatViewModel(
 
             val finalMessages = _messages.value.toMutableList()
             if (messageIndex < finalMessages.size) {
-                finalMessages[messageIndex] = finalMessages[messageIndex].copy(text = fullText)
+                finalMessages[messageIndex] =
+                    finalMessages[messageIndex].copy(
+                        text = fullText,
+                        responseTime = responseTime,
+                        tokens = tokens,
+                        cost = cost
+                    )
                 _messages.value = finalMessages
             }
 
@@ -167,5 +189,3 @@ class ChatViewModel(
         }
     }
 }
-
-// Переформулируй этот текст 5 раз разными стилями: Наша жизнь есть то, что мы думаем о ней.

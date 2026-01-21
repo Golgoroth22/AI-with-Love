@@ -56,12 +56,12 @@ import org.koin.androidx.compose.koinViewModel
 fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
-    val selectedTemperature by viewModel.selectedTemperature.collectAsState()
+    val selectedModel by viewModel.selectedModel.collectAsState()
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    val temperatureOptions = listOf(0.0, 0.9, 1.9)
+    val modelOptions = listOf("Sonar" to "sonar", "Sonar Deep Research" to "sonar-deep-research")
     var expanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(messages.size) {
@@ -114,7 +114,7 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                         onExpandedChange = { expanded = !expanded }
                     ) {
                         OutlinedTextField(
-                            value = selectedTemperature.toString(),
+                            value = modelOptions.find { it.second == selectedModel }?.first ?: "Sonar",
                             onValueChange = {},
                             readOnly = true,
                             trailingIcon = {
@@ -124,7 +124,7 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                                 Modifier
                                     .fillMaxWidth()
                                     .menuAnchor(),
-                            label = { Text("Температура") },
+                            label = { Text("Модель") },
                             colors =
                                 OutlinedTextFieldDefaults.colors(
                                     focusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -135,11 +135,11 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                             expanded = expanded,
                             onDismissRequest = { expanded = false }
                         ) {
-                            temperatureOptions.forEach { temperature ->
+                            modelOptions.forEach { (displayName, modelValue) ->
                                 DropdownMenuItem(
-                                    text = { Text(temperature.toString()) },
+                                    text = { Text(displayName) },
                                     onClick = {
-                                        viewModel.setTemperature(temperature)
+                                        viewModel.setModel(modelValue)
                                         expanded = false
                                     }
                                 )
@@ -236,7 +236,7 @@ fun MessageBubble(message: ChatViewModel.Message) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (message.isFromUser) Arrangement.End else Arrangement.Start
     ) {
-        Box(
+        Column(
             modifier =
                 Modifier
                     .widthIn(max = 280.dp)
@@ -268,6 +268,88 @@ fun MessageBubble(message: ChatViewModel.Message) {
                 fontSize = 16.sp,
                 lineHeight = 20.sp
             )
+            if (!message.isFromUser && (message.responseTime != null || message.tokens != null || message.cost != null)) {
+                Column(
+                    modifier = Modifier.padding(top = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    message.responseTime?.let {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "⚡",
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = "${it}ms",
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                    message.tokens?.let {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "🎯",
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = "$it tokens",
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                    message.cost?.let {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "💰",
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = "$${String.format("%.4f", it)}",
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
