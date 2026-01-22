@@ -22,7 +22,7 @@ class ChatViewModel(
         MutableStateFlow(
             listOf(
                 Message(
-                    text = "Привет! Я ваш ИИ-помощник. Чем могу помочь?",
+                    text = "Привет! Я ваш ИИ-помощник на базе Perplexity API (модель: sonar).\n\nЛимит токенов для ответа: 1000 токенов\n\nЧем могу помочь?",
                     isFromUser = false
                 )
             )
@@ -32,11 +32,15 @@ class ChatViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val _selectedModel = MutableStateFlow("sonar")
-    val selectedModel: StateFlow<String> = _selectedModel.asStateFlow()
-
-    fun setModel(model: String) {
-        _selectedModel.value = model
+    fun clearChat() {
+        _messages.value =
+            listOf(
+                Message(
+                    text = "Привет! Я ваш ИИ-помощник на базе Perplexity API (модель: sonar).\n\nЛимит токенов для ответа: $MAX_TOKENS токенов\n\nЧем могу помочь?",
+                    isFromUser = false
+                )
+            )
+        logD("Чат очищен, контекст сброшен")
     }
 
     fun sendMessage(userMessage: String) {
@@ -58,7 +62,6 @@ class ChatViewModel(
         val thinkingMessageIndex = _messages.value.size - 1
 
         viewModelScope.launch(Dispatchers.IO) {
-            val startTime = System.currentTimeMillis()
             runAndCatch {
                 val userMessages =
                     _messages.value
@@ -74,8 +77,8 @@ class ChatViewModel(
                 logD("Отправка ${userMessages.size} сообщений в API")
                 perplexityService.sendMessage(
                     messages = userMessages,
-                    model = _selectedModel.value,
-                    maxTokens = 1000
+                    model = "sonar",
+                    maxTokens = MAX_TOKENS
                 )
             }.onSuccess { result ->
                 result
@@ -88,12 +91,10 @@ class ChatViewModel(
                                 ?: "Извините, не удалось получить ответ."
 
                         val fullResponse = rawResponse.trim()
-                        val endTime = System.currentTimeMillis()
-                        val responseTime = endTime - startTime
 
                         val usage = response.usage
-                        val totalTokens = usage?.total_tokens ?: 0
-                        val totalCost = usage?.cost?.total_cost ?: 0.0
+                        val promptTokens = usage?.prompt_tokens ?: 0
+                        val completionTokens = usage?.completion_tokens ?: 0
 
                         logD("Успешно получен ответ от Perplexity API")
 
@@ -103,14 +104,13 @@ class ChatViewModel(
                                 Message(
                                     text = "",
                                     isFromUser = false,
-                                    responseTime = responseTime,
-                                    tokens = totalTokens,
-                                    cost = totalCost
+                                    promptTokens = promptTokens,
+                                    completionTokens = completionTokens
                                 )
                             _messages.value = currentMessages
                         }
 
-                        typewriterEffect(fullResponse, thinkingMessageIndex, responseTime, totalTokens, totalCost)
+                        typewriterEffect(fullResponse, thinkingMessageIndex, promptTokens, completionTokens)
                     }.onFailure { error ->
                         logE("Ошибка при получении ответа от Perplexity API", error)
                         val currentMessages = _messages.value.toMutableList()
@@ -144,17 +144,15 @@ class ChatViewModel(
         val text: String,
         val isFromUser: Boolean,
         val timestamp: Long = System.currentTimeMillis(),
-        val responseTime: Long? = null,
-        val tokens: Int? = null,
-        val cost: Double? = null
+        val promptTokens: Int? = null,
+        val completionTokens: Int? = null
     )
 
     private suspend fun typewriterEffect(
         fullText: String,
         messageIndex: Int,
-        responseTime: Long,
-        tokens: Int,
-        cost: Double
+        promptTokens: Int,
+        completionTokens: Int
     ) {
         val charsPerDelay = 3
         val delayMs = 30L
@@ -176,9 +174,8 @@ class ChatViewModel(
                 finalMessages[messageIndex] =
                     finalMessages[messageIndex].copy(
                         text = fullText,
-                        responseTime = responseTime,
-                        tokens = tokens,
-                        cost = cost
+                        promptTokens = promptTokens,
+                        completionTokens = completionTokens
                     )
                 _messages.value = finalMessages
             }
@@ -187,5 +184,9 @@ class ChatViewModel(
         }.onFailure {
             _isLoading.value = false
         }
+    }
+
+    companion object {
+        private const val MAX_TOKENS = 10000
     }
 }

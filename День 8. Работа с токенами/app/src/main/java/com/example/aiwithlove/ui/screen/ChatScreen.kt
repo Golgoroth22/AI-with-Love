@@ -1,11 +1,14 @@
 package com.example.aiwithlove.ui.screen
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -17,15 +20,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -42,6 +45,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -56,13 +62,11 @@ import org.koin.androidx.compose.koinViewModel
 fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
-    val selectedModel by viewModel.selectedModel.collectAsState()
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val keyboardController = LocalSoftwareKeyboardController.current
-
-    val modelOptions = listOf("Sonar" to "sonar", "Sonar Deep Research" to "sonar-deep-research")
-    var expanded by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    var isKeyboardVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -88,66 +92,19 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
 
     Scaffold(
         topBar = {
-            Column {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = "Чат with Love",
-                            fontWeight = FontWeight.Bold,
-                        )
-                    },
-                    colors =
-                        TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                )
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.primaryContainer)
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    ExposedDropdownMenuBox(
-                        expanded = expanded,
-                        onExpandedChange = { expanded = !expanded }
-                    ) {
-                        OutlinedTextField(
-                            value = modelOptions.find { it.second == selectedModel }?.first ?: "Sonar",
-                            onValueChange = {},
-                            readOnly = true,
-                            trailingIcon = {
-                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
-                            },
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .menuAnchor(),
-                            label = { Text("Модель") },
-                            colors =
-                                OutlinedTextFieldDefaults.colors(
-                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                                )
-                        )
-                        ExposedDropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false }
-                        ) {
-                            modelOptions.forEach { (displayName, modelValue) ->
-                                DropdownMenuItem(
-                                    text = { Text(displayName) },
-                                    onClick = {
-                                        viewModel.setModel(modelValue)
-                                        expanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "Чат with Love",
+                        fontWeight = FontWeight.Bold,
+                    )
+                },
+                colors =
+                    TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+            )
         },
     ) { paddingValues ->
         Column(
@@ -171,58 +128,105 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                 }
             }
 
-            Row(
+            Column(
                 modifier =
                     Modifier
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.surface)
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .imePadding(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.Bottom
+                        .imePadding()
             ) {
-                OutlinedTextField(
-                    value = inputText,
-                    onValueChange = { inputText = it },
+                Row(
                     modifier =
                         Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                    placeholder = { Text("Введите сообщение...") },
-                    shape = RoundedCornerShape(24.dp),
-                    colors =
-                        OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                        ),
-                    singleLine = false,
-                    maxLines = 4,
-                    enabled = !isLoading
-                )
-                FloatingActionButton(
-                    onClick = {
-                        if (inputText.isNotBlank() && !isLoading) {
-                            val userMessage = inputText
-                            inputText = ""
-                            keyboardController?.hide()
-                            viewModel.sendMessage(userMessage)
-                        }
-                    },
-                    modifier = Modifier.size(56.dp),
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Bottom
                 ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Send,
-                            contentDescription = "Отправить"
-                        )
+                    OutlinedTextField(
+                        value = inputText,
+                        onValueChange = { inputText = it },
+                        modifier =
+                            Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .onFocusChanged { focusState ->
+                                    isKeyboardVisible = focusState.isFocused
+                                },
+                        placeholder = { Text("Введите сообщение...") },
+                        shape = RoundedCornerShape(24.dp),
+                        colors =
+                            OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                            ),
+                        singleLine = false,
+                        maxLines = 4,
+                        enabled = !isLoading
+                    )
+                    FloatingActionButton(
+                        onClick = {
+                            if (inputText.isNotBlank() && !isLoading) {
+                                val userMessage = inputText
+                                inputText = ""
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                                viewModel.sendMessage(userMessage)
+                            }
+                        },
+                        modifier = Modifier.size(56.dp),
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = "Отправить"
+                            )
+                        }
+                    }
+                }
+
+                if (!isKeyboardVisible) {
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.clearChat()
+                                inputText = ""
+                                focusManager.clearFocus()
+                            },
+                            enabled = !isLoading,
+                            shape = RoundedCornerShape(16.dp),
+                            colors =
+                                ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.primary
+                                ),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Новый чат",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.size(8.dp))
+                            Text(
+                                text = "Новый чат",
+                                fontSize = 14.sp
+                            )
+                        }
                     }
                 }
             }
@@ -268,42 +272,35 @@ fun MessageBubble(message: ChatViewModel.Message) {
                 fontSize = 16.sp,
                 lineHeight = 20.sp
             )
-            if (!message.isFromUser && (message.responseTime != null || message.tokens != null || message.cost != null)) {
+            if (!message.isFromUser && (message.promptTokens != null || message.completionTokens != null)) {
                 Column(
                     modifier = Modifier.padding(top = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    message.responseTime?.let {
+                    message.promptTokens?.let {
                         Box(
                             modifier =
                                 Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(MaterialTheme.colorScheme.tertiaryContainer)
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "⚡",
-                                    fontSize = 14.sp
-                                )
-                                Text(
-                                    text = "${it}ms",
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-                    message.tokens?.let {
-                        Box(
-                            modifier =
-                                Modifier
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(
+                                        RoundedCornerShape(
+                                            topStart = 12.dp,
+                                            topEnd = 4.dp,
+                                            bottomStart = 12.dp,
+                                            bottomEnd = 12.dp
+                                        )
+                                    )
                                     .background(MaterialTheme.colorScheme.secondaryContainer)
+                                    .border(
+                                        width = 1.dp,
+                                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                        shape =
+                                            RoundedCornerShape(
+                                                topStart = 12.dp,
+                                                topEnd = 4.dp,
+                                                bottomStart = 12.dp,
+                                                bottomEnd = 12.dp
+                                            )
+                                    )
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
                             Row(
@@ -311,11 +308,11 @@ fun MessageBubble(message: ChatViewModel.Message) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "🎯",
+                                    text = "📤",
                                     fontSize = 14.sp
                                 )
                                 Text(
-                                    text = "$it tokens",
+                                    text = "$it tokens (request)",
                                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium
@@ -323,12 +320,30 @@ fun MessageBubble(message: ChatViewModel.Message) {
                             }
                         }
                     }
-                    message.cost?.let {
+                    message.completionTokens?.let {
                         Box(
                             modifier =
                                 Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .clip(
+                                        RoundedCornerShape(
+                                            topStart = 12.dp,
+                                            topEnd = 4.dp,
+                                            bottomStart = 12.dp,
+                                            bottomEnd = 12.dp
+                                        )
+                                    )
+                                    .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                    .border(
+                                        width = 1.dp,
+                                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                        shape =
+                                            RoundedCornerShape(
+                                                topStart = 12.dp,
+                                                topEnd = 4.dp,
+                                                bottomStart = 12.dp,
+                                                bottomEnd = 12.dp
+                                            )
+                                    )
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
                             Row(
@@ -336,12 +351,12 @@ fun MessageBubble(message: ChatViewModel.Message) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "💰",
+                                    text = "📥",
                                     fontSize = 14.sp
                                 )
                                 Text(
-                                    text = "$${String.format("%.4f", it)}",
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    text = "$it tokens (response)",
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium
                                 )

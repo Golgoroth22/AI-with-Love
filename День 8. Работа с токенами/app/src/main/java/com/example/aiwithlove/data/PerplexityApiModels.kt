@@ -29,9 +29,9 @@ data class JsonSchema(
 data class ChatCompletionRequest(
     val model: String = "sonar",
     val messages: List<ChatMessage>,
-    val response_format: ResponseFormat? = null,
-    val max_tokens: Int? = 1500,
-    val temperature: Double? = null
+    val response_format: ResponseFormat?,
+    val max_tokens: Int?,
+    val temperature: Double?
 )
 
 @Serializable
