@@ -123,7 +123,7 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(messages) { message ->
+                items(messages.filterNot { it.isSummary }) { message ->
                     MessageBubble(message = message)
                 }
             }

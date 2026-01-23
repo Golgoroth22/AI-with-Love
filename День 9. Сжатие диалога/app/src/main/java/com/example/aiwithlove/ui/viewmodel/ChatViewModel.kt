@@ -19,27 +19,14 @@ class ChatViewModel(
     ILoggable {
 
     private val _messages =
-        MutableStateFlow(
-            listOf(
-                Message(
-                    text = "Привет! Я ваш ИИ-помощник на базе Perplexity API (модель: sonar).\n\nЛимит токенов для ответа: 1000 токенов\n\nЧем могу помочь?",
-                    isFromUser = false
-                )
-            )
-        )
+        MutableStateFlow(listOf(Message(text = CONGRATS_MESSAGE, isFromUser = false)))
     val messages: StateFlow<List<Message>> = _messages.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     fun clearChat() {
-        _messages.value =
-            listOf(
-                Message(
-                    text = "Привет! Я ваш ИИ-помощник на базе Perplexity API (модель: sonar).\n\nЛимит токенов для ответа: $MAX_TOKENS токенов\n\nЧем могу помочь?",
-                    isFromUser = false
-                )
-            )
+        _messages.value = listOf(Message(text = CONGRATS_MESSAGE, isFromUser = false))
         logD("Чат очищен, контекст сброшен")
     }
 
@@ -47,10 +34,10 @@ class ChatViewModel(
         if (userMessage.isBlank() || _isLoading.value) return
 
         _messages.value = _messages.value +
-            Message(
-                text = userMessage,
-                isFromUser = true
-            )
+                Message(
+                    text = userMessage,
+                    isFromUser = true
+                )
         _isLoading.value = true
 
         val thinkingMessage =
@@ -63,13 +50,32 @@ class ChatViewModel(
 
         viewModelScope.launch(Dispatchers.IO) {
             runAndCatch {
+                val allMessages = _messages.value.drop(1)
+                val lastSummaryIndex = allMessages.indexOfLast { it.isSummary }
+
+                val messagesToSend =
+                    if (lastSummaryIndex >= 0) {
+                        val summary = allMessages[lastSummaryIndex]
+                        val messagesAfterSummary =
+                            allMessages.subList(lastSummaryIndex + 1, allMessages.size)
+                                .filterNot { it.isCompressed }
+                        listOf(summary) + messagesAfterSummary
+                    } else {
+                        allMessages.filterNot { it.isCompressed }
+                    }
+
                 val userMessages =
-                    _messages.value
-                        .drop(1)
-                        .filter { it.isFromUser || it.text != "Думаю..." }
+                    messagesToSend
+                        .filterNot { it.text == "Думаю..." || it.isCompressionNotice }
                         .map { msg ->
+                            val role =
+                                when {
+                                    msg.isSystemMessage -> "system"
+                                    msg.isFromUser -> "user"
+                                    else -> "assistant"
+                                }
                             ApiChatMessage(
-                                role = if (msg.isFromUser) "user" else "assistant",
+                                role = role,
                                 content = msg.text
                             )
                         }
@@ -110,7 +116,16 @@ class ChatViewModel(
                             _messages.value = currentMessages
                         }
 
-                        typewriterEffect(fullResponse, thinkingMessageIndex, promptTokens, completionTokens)
+                        typewriterEffect(
+                            fullResponse,
+                            thinkingMessageIndex,
+                            promptTokens,
+                            completionTokens
+                        )
+
+                        if (shouldCompressDialog()) {
+                            compressDialogWithNotification()
+                        }
                     }.onFailure { error ->
                         logE("Ошибка при получении ответа от Perplexity API", error)
                         val currentMessages = _messages.value.toMutableList()
@@ -145,7 +160,11 @@ class ChatViewModel(
         val isFromUser: Boolean,
         val timestamp: Long = System.currentTimeMillis(),
         val promptTokens: Int? = null,
-        val completionTokens: Int? = null
+        val completionTokens: Int? = null,
+        val isSystemMessage: Boolean = false,
+        val isSummary: Boolean = false,
+        val isCompressionNotice: Boolean = false,
+        val isCompressed: Boolean = false
     )
 
     private suspend fun typewriterEffect(
@@ -186,7 +205,148 @@ class ChatViewModel(
         }
     }
 
+    private fun shouldCompressDialog(): Boolean {
+        val allMessages = _messages.value.drop(1)
+        val lastSummaryIndex = allMessages.indexOfLast { it.isSummary }
+
+        val messagesAfterSummary =
+            if (lastSummaryIndex >= 0) {
+                allMessages.subList(lastSummaryIndex + 1, allMessages.size)
+            } else {
+                allMessages
+            }
+
+        val userMessagesCount =
+            messagesAfterSummary
+                .filterNot { it.isCompressionNotice || it.text == "Думаю..." || it.isCompressed }
+                .count { it.isFromUser }
+
+        logD("Проверка сжатия: $userMessagesCount пользовательских сообщений с момента последнего сжатия")
+
+        return userMessagesCount >= COMPRESSION_THRESHOLD
+    }
+
+    private suspend fun compressDialogWithNotification() {
+        val compressionNotice =
+            Message(
+                text = "🗜️ Сжимаю историю диалога...",
+                isFromUser = false,
+                isCompressionNotice = true
+            )
+        _messages.value = _messages.value + compressionNotice
+
+        compressDialog()
+
+        val completionNotice =
+            Message(
+                text = "✅ История диалога сжата",
+                isFromUser = false,
+                isCompressionNotice = true
+            )
+        _messages.value = _messages.value.filterNot {
+            it.text.contains("Сжимаю историю диалога")
+        } + completionNotice
+    }
+
+    private suspend fun compressDialog() {
+        logD("Начало сжатия диалога...")
+
+        val allMessages = _messages.value.drop(1).toList()
+        val lastSummaryIndex = allMessages.indexOfLast { it.isSummary }
+
+        val messagesToCompress =
+            if (lastSummaryIndex >= 0) {
+                allMessages.subList(lastSummaryIndex + 1, allMessages.size)
+                    .filterNot { it.text.contains("Сжимаю историю диалога") || it.isCompressionNotice }
+            } else {
+                allMessages.filterNot { it.text.contains("Сжимаю историю диалога") || it.isCompressionNotice }
+            }
+
+        if (messagesToCompress.isEmpty()) {
+            logD("Нет сообщений для сжатия")
+            return
+        }
+
+        logD("Сжимаем ${messagesToCompress.size} сообщений")
+
+        val conversationText =
+            messagesToCompress.joinToString("\n") { msg ->
+                val role = if (msg.isFromUser) "Пользователь" else "Ассистент"
+                "$role: ${msg.text}"
+            }
+
+        val summaryPrompt =
+            """Создай краткое резюме следующего диалога. Сохрани ключевые темы, факты и контекст. Будь лаконичен, но информативен.
+
+Диалог:
+$conversationText
+
+Краткое резюме:"""
+
+        runAndCatch {
+            val summaryMessages =
+                listOf(
+                    ApiChatMessage(
+                        role = "user",
+                        content = summaryPrompt
+                    )
+                )
+
+            perplexityService.sendMessage(
+                messages = summaryMessages,
+                model = "sonar",
+                maxTokens = MAX_TOKENS,
+                temperature = 0.3
+            )
+        }.onSuccess { result ->
+            result.onSuccess { response ->
+                val summary = response.choices.firstOrNull()?.message?.content ?: ""
+
+                if (summary.isNotEmpty()) {
+                    logD("Получено резюме: ${summary.take(100)}...")
+
+                    val summaryMessage =
+                        Message(
+                            text = summary,
+                            isFromUser = false,
+                            isSystemMessage = true,
+                            isSummary = true
+                        )
+
+                    val welcomeMessage = _messages.value.first()
+                    val visibleMessages =
+                        _messages.value.drop(1)
+                            .filterNot { it.text.contains("Сжимаю историю диалога") || it.isSummary }
+                            .map { msg ->
+                                if (messagesToCompress.contains(msg)) {
+                                    msg.copy(isCompressed = true)
+                                } else {
+                                    msg
+                                }
+                            }
+
+                    _messages.value = listOf(welcomeMessage, summaryMessage) + visibleMessages
+
+                    logD(
+                        "Диалог успешно сжат. Сжато ${messagesToCompress.size} сообщений в резюме, ${visibleMessages.size} сообщений остаются видимыми"
+                    )
+                } else {
+                    logD("Не удалось получить резюме")
+                }
+            }.onFailure { error ->
+                logE("Ошибка при создании резюме", error)
+            }
+        }.onFailure { error ->
+            logE("Исключение при сжатии диалога", error)
+        }
+    }
+
     companion object {
-        private const val MAX_TOKENS = 10000
+        private const val MAX_TOKENS = 1000
+        private const val COMPRESSION_THRESHOLD = 5
+        private const val CONGRATS_MESSAGE = "Привет! Я ваш ИИ-помощник на базе Perplexity API " +
+                "(модель: sonar).\n\nЛимит токенов для ответа: $MAX_TOKENS токенов\n\n🗜️ Включено" +
+                " автоматическое сжатие диалога каждые $COMPRESSION_THRESHOLD ваших сообщений для" +
+                " оптимизации токенов!\n\nЧем могу помочь?"
     }
 }
