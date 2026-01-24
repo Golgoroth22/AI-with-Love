@@ -1,8 +1,9 @@
-package com.example.aiwithlove.ui.viewmodel
+package com.example.aiwithlove.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.aiwithlove.data.PerplexityApiService
+import com.example.aiwithlove.database.ChatRepository
 import com.example.aiwithlove.util.ILoggable
 import com.example.aiwithlove.util.runAndCatch
 import kotlinx.coroutines.Dispatchers
@@ -14,7 +15,8 @@ import kotlinx.coroutines.launch
 import com.example.aiwithlove.data.ChatMessage as ApiChatMessage
 
 class ChatViewModel(
-    private val perplexityService: PerplexityApiService
+    private val perplexityService: PerplexityApiService,
+    private val chatRepository: ChatRepository
 ) : ViewModel(),
     ILoggable {
 
@@ -25,20 +27,71 @@ class ChatViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private var storedSummary: Message? = null
+    private var userMessagesCountSinceAppLaunch = 0
+
+    init {
+        loadChatHistory()
+    }
+
+    private fun loadChatHistory() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runAndCatch {
+                val summary = chatRepository.getSummary()
+                storedSummary = summary
+
+                val savedMessages = chatRepository.getAllMessages()
+                if (savedMessages.isNotEmpty()) {
+                    logD("Загружено ${savedMessages.size} сообщений из БД")
+                    val welcomeMessage = _messages.value.first()
+                    _messages.value = listOf(welcomeMessage) + savedMessages
+
+                    if (summary != null) {
+                        logD("Сводка загружена и будет использоваться для контекста API")
+                    }
+                } else {
+                    logD("История сообщений пуста")
+                }
+            }.onFailure { error ->
+                logE("Ошибка при загрузке истории сообщений", error)
+            }
+        }
+    }
+
     fun clearChat() {
-        _messages.value = listOf(Message(text = CONGRATS_MESSAGE, isFromUser = false))
-        logD("Чат очищен, контекст сброшен")
+        viewModelScope.launch(Dispatchers.IO) {
+            runAndCatch {
+                chatRepository.clearAllMessages()
+                chatRepository.clearSummary()
+                storedSummary = null
+                userMessagesCountSinceAppLaunch = 0
+                _messages.value = listOf(Message(text = CONGRATS_MESSAGE, isFromUser = false))
+                logD("Чат очищен, контекст сброшен, БД очищена")
+            }.onFailure { error ->
+                logE("Ошибка при очистке БД", error)
+            }
+        }
     }
 
     fun sendMessage(userMessage: String) {
         if (userMessage.isBlank() || _isLoading.value) return
 
-        _messages.value = _messages.value +
-                Message(
-                    text = userMessage,
-                    isFromUser = true
-                )
+        val userMsg =
+            Message(
+                text = userMessage,
+                isFromUser = true
+            )
+        _messages.value = _messages.value + userMsg
         _isLoading.value = true
+        userMessagesCountSinceAppLaunch++
+
+        viewModelScope.launch(Dispatchers.IO) {
+            runAndCatch {
+                chatRepository.saveUserMessage(userMsg)
+            }.onFailure { error ->
+                logE("Ошибка при сохранении пользовательского сообщения", error)
+            }
+        }
 
         val thinkingMessage =
             Message(
@@ -65,20 +118,34 @@ class ChatViewModel(
                     }
 
                 val userMessages =
-                    messagesToSend
-                        .filterNot { it.text == "Думаю..." || it.isCompressionNotice }
-                        .map { msg ->
-                            val role =
-                                when {
-                                    msg.isSystemMessage -> "system"
-                                    msg.isFromUser -> "user"
-                                    else -> "assistant"
-                                }
-                            ApiChatMessage(
-                                role = role,
-                                content = msg.text
+                    buildList {
+                        if (storedSummary != null) {
+                            add(
+                                ApiChatMessage(
+                                    role = "system",
+                                    content = storedSummary!!.text
+                                )
                             )
+                            logD("Добавлена сводка из БД в контекст API")
                         }
+
+                        addAll(
+                            messagesToSend
+                                .filterNot { it.text == "Думаю..." || it.isCompressionNotice }
+                                .map { msg ->
+                                    val role =
+                                        when {
+                                            msg.isSystemMessage -> "system"
+                                            msg.isFromUser -> "user"
+                                            else -> "assistant"
+                                        }
+                                    ApiChatMessage(
+                                        role = role,
+                                        content = msg.text
+                                    )
+                                }
+                        )
+                    }
 
                 logD("Отправка ${userMessages.size} сообщений в API")
                 perplexityService.sendMessage(
@@ -190,13 +257,22 @@ class ChatViewModel(
 
             val finalMessages = _messages.value.toMutableList()
             if (messageIndex < finalMessages.size) {
-                finalMessages[messageIndex] =
+                val assistantMessage =
                     finalMessages[messageIndex].copy(
                         text = fullText,
                         promptTokens = promptTokens,
                         completionTokens = completionTokens
                     )
+                finalMessages[messageIndex] = assistantMessage
                 _messages.value = finalMessages
+
+                viewModelScope.launch(Dispatchers.IO) {
+                    runAndCatch {
+                        chatRepository.saveAssistantMessage(assistantMessage)
+                    }.onFailure { error ->
+                        logE("Ошибка при сохранении ответа ассистента", error)
+                    }
+                }
             }
 
             _isLoading.value = false
@@ -221,9 +297,14 @@ class ChatViewModel(
                 .filterNot { it.isCompressionNotice || it.text == "Думаю..." || it.isCompressed }
                 .count { it.isFromUser }
 
-        logD("Проверка сжатия: $userMessagesCount пользовательских сообщений с момента последнего сжатия")
+        val canCompress = userMessagesCount >= COMPRESSION_THRESHOLD && userMessagesCountSinceAppLaunch >= COMPRESSION_THRESHOLD
 
-        return userMessagesCount >= COMPRESSION_THRESHOLD
+        logD(
+            "Проверка сжатия: $userMessagesCount сообщений с последнего сжатия, " +
+                "$userMessagesCountSinceAppLaunch с запуска приложения. Можно сжать: $canCompress"
+        )
+
+        return canCompress
     }
 
     private suspend fun compressDialogWithNotification() {
@@ -327,6 +408,18 @@ $conversationText
 
                     _messages.value = listOf(welcomeMessage, summaryMessage) + visibleMessages
 
+                    storedSummary = summaryMessage
+
+                    viewModelScope.launch(Dispatchers.IO) {
+                        runAndCatch {
+                            val totalMessagesInDb = chatRepository.getAllMessages().size
+                            chatRepository.saveSummary(summary, totalMessagesInDb)
+                            logD("Сводка сохранена в БД")
+                        }.onFailure { error ->
+                            logE("Ошибка при сохранении сводки в БД", error)
+                        }
+                    }
+
                     logD(
                         "Диалог успешно сжат. Сжато ${messagesToCompress.size} сообщений в резюме, ${visibleMessages.size} сообщений остаются видимыми"
                     )
@@ -344,7 +437,8 @@ $conversationText
     companion object {
         private const val MAX_TOKENS = 1000
         private const val COMPRESSION_THRESHOLD = 5
-        private const val CONGRATS_MESSAGE = "Привет! Я ваш ИИ-помощник на базе Perplexity API " +
+        private const val CONGRATS_MESSAGE =
+            "Привет! Я ваш ИИ-помощник на базе Perplexity API " +
                 "(модель: sonar).\n\nЛимит токенов для ответа: $MAX_TOKENS токенов\n\n🗜️ Включено" +
                 " автоматическое сжатие диалога каждые $COMPRESSION_THRESHOLD ваших сообщений для" +
                 " оптимизации токенов!\n\nЧем могу помочь?"
