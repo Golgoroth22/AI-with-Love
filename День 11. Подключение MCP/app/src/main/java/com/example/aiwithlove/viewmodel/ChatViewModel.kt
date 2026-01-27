@@ -4,6 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.aiwithlove.data.PerplexityApiService
 import com.example.aiwithlove.database.ChatRepository
+import com.example.aiwithlove.mcp.McpClient
+import com.example.aiwithlove.mcp.McpServerConfig
+import com.example.aiwithlove.mcp.McpServers
+import com.example.aiwithlove.mcp.McpTool
 import com.example.aiwithlove.util.ILoggable
 import com.example.aiwithlove.util.runAndCatch
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +20,8 @@ import com.example.aiwithlove.data.ChatMessage as ApiChatMessage
 
 class ChatViewModel(
     private val perplexityService: PerplexityApiService,
-    private val chatRepository: ChatRepository
+    private val chatRepository: ChatRepository,
+    private val mcpClient: McpClient
 ) : ViewModel(),
     ILoggable {
 
@@ -27,11 +32,59 @@ class ChatViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _mcpServers = MutableStateFlow(McpServers.availableServers)
+    val mcpServers: StateFlow<List<McpServerConfig>> = _mcpServers.asStateFlow()
+
+    private val _mcpTools = MutableStateFlow<List<McpTool>>(emptyList())
+    val mcpTools: StateFlow<List<McpTool>> = _mcpTools.asStateFlow()
+
+    private val _showMcpDialog = MutableStateFlow(false)
+    val showMcpDialog: StateFlow<Boolean> = _showMcpDialog.asStateFlow()
+
     private var storedSummary: Message? = null
     private var userMessagesCountSinceAppLaunch = 0
 
     init {
         loadChatHistory()
+        loadMcpTools()
+    }
+
+    fun toggleMcpDialog() {
+        _showMcpDialog.value = !_showMcpDialog.value
+    }
+
+    fun toggleMcpServer(serverId: String) {
+        _mcpServers.value =
+            _mcpServers.value.map { server ->
+                if (server.id == serverId) {
+                    server.copy(isEnabled = !server.isEnabled)
+                } else {
+                    server
+                }
+            }
+        if (_mcpServers.value.any { it.isEnabled }) {
+            loadMcpTools()
+        }
+    }
+
+    private fun loadMcpTools() {
+        val enabledServers = _mcpServers.value.filter { it.isEnabled }
+        if (enabledServers.isEmpty()) {
+            _mcpTools.value = emptyList()
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            runAndCatch {
+                mcpClient.initialize()
+                val tools = mcpClient.listTools()
+                _mcpTools.value = tools
+                logD("Загружено ${tools.size} MCP инструментов")
+            }.onFailure { error ->
+                logE("Ошибка загрузки MCP инструментов", error)
+                _mcpTools.value = emptyList()
+            }
+        }
     }
 
     private fun loadChatHistory() {

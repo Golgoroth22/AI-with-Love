@@ -5,10 +5,11 @@ import com.example.aiwithlove.data.PerplexityApiServiceImpl
 import com.example.aiwithlove.database.AppDatabase
 import com.example.aiwithlove.database.ChatMessageDao
 import com.example.aiwithlove.database.ChatRepository
+import com.example.aiwithlove.mcp.McpClient
 import com.example.aiwithlove.util.SecureData
 import com.example.aiwithlove.viewmodel.ChatViewModel
 import org.koin.android.ext.koin.androidContext
-import org.koin.androidx.viewmodel.dsl.viewModelOf
+import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 
 val appModule =
@@ -29,5 +30,9 @@ val appModule =
             ChatRepository(get())
         }
 
-        viewModelOf(::ChatViewModel)
+        single {
+            McpClient("http://10.0.2.2:8080")
+        }
+
+        viewModel { ChatViewModel(get(), get(), get()) }
     }

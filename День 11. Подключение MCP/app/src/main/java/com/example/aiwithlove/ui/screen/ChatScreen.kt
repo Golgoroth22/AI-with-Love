@@ -20,13 +20,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -61,11 +65,22 @@ import org.koin.androidx.compose.koinViewModel
 fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val mcpServers by viewModel.mcpServers.collectAsState()
+    val mcpTools by viewModel.mcpTools.collectAsState()
+    val showMcpDialog by viewModel.showMcpDialog.collectAsState()
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     var isKeyboardVisible by remember { mutableStateOf(false) }
+
+    if (showMcpDialog) {
+        McpServerDialog(
+            servers = mcpServers,
+            onDismiss = { viewModel.toggleMcpDialog() },
+            onToggleServer = { serverId -> viewModel.toggleMcpServer(serverId) }
+        )
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -97,6 +112,30 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                         text = "Чат with Love",
                         fontWeight = FontWeight.Bold,
                     )
+                },
+                actions = {
+                    val enabledCount = mcpServers.count { it.isEnabled }
+                    IconButton(onClick = { viewModel.toggleMcpDialog() }) {
+                        if (enabledCount > 0) {
+                            BadgedBox(
+                                badge = {
+                                    Badge {
+                                        Text("$enabledCount")
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Build,
+                                    contentDescription = "MCP Tools"
+                                )
+                            }
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Build,
+                                contentDescription = "MCP Tools"
+                            )
+                        }
+                    }
                 },
                 colors =
                     TopAppBarDefaults.topAppBarColors(
