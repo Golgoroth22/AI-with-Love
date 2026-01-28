@@ -1,5 +1,10 @@
 package com.example.aiwithlove.viewmodel
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.aiwithlove.data.AgenticResponse
@@ -9,6 +14,7 @@ import com.example.aiwithlove.database.ChatRepository
 import com.example.aiwithlove.mcp.McpClient
 import com.example.aiwithlove.mcp.McpServerConfig
 import com.example.aiwithlove.mcp.McpServers
+import com.example.aiwithlove.scheduler.JokeSchedulerService
 import com.example.aiwithlove.util.ILoggable
 import com.example.aiwithlove.util.runAndCatch
 import kotlinx.coroutines.Dispatchers
@@ -29,7 +35,8 @@ import kotlinx.serialization.json.putJsonObject
 class ChatViewModel(
     private val perplexityService: PerplexityApiService,
     private val chatRepository: ChatRepository,
-    private val mcpClient: McpClient
+    private val mcpClient: McpClient,
+    private val context: Context
 ) : ViewModel(),
     ILoggable {
 
@@ -46,11 +53,56 @@ class ChatViewModel(
     private val _showMcpDialog = MutableStateFlow(false)
     val showMcpDialog: StateFlow<Boolean> = _showMcpDialog.asStateFlow()
 
+    private val _isSchedulerRunning = MutableStateFlow(false)
+    val isSchedulerRunning: StateFlow<Boolean> = _isSchedulerRunning.asStateFlow()
+
+    private val _needsNotificationPermission = MutableStateFlow(false)
+    val needsNotificationPermission: StateFlow<Boolean> = _needsNotificationPermission.asStateFlow()
+
     private var storedSummary: Message? = null
     private var userMessagesCountSinceAppLaunch = 0
 
     init {
         loadChatHistory()
+    }
+
+    fun toggleJokeScheduler() {
+        if (_isSchedulerRunning.value) {
+            stopJokeScheduler()
+        } else {
+            startJokeScheduler()
+        }
+    }
+
+    fun startJokeScheduler() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!hasPermission) {
+                _needsNotificationPermission.value = true
+                return
+            }
+        }
+
+        JokeSchedulerService.start(context)
+        _isSchedulerRunning.value = true
+        logD("Joke scheduler started")
+    }
+
+    fun stopJokeScheduler() {
+        JokeSchedulerService.stop(context)
+        _isSchedulerRunning.value = false
+        logD("Joke scheduler stopped")
+    }
+
+    fun onNotificationPermissionResult(granted: Boolean) {
+        _needsNotificationPermission.value = false
+        if (granted) {
+            startJokeScheduler()
+        }
     }
 
     fun toggleMcpDialog() {

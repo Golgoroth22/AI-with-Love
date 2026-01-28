@@ -1,5 +1,9 @@
 package com.example.aiwithlove.ui.screen
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,6 +25,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Badge
@@ -36,9 +41,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -67,17 +76,38 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
     val isLoading by viewModel.isLoading.collectAsState()
     val mcpServers by viewModel.mcpServers.collectAsState()
     val showMcpDialog by viewModel.showMcpDialog.collectAsState()
+    val isSchedulerRunning by viewModel.isSchedulerRunning.collectAsState()
+    val needsNotificationPermission by viewModel.needsNotificationPermission.collectAsState()
     var inputText by remember { mutableStateOf("") }
+    var showSchedulerInfoDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     var isKeyboardVisible by remember { mutableStateOf(false) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.onNotificationPermissionResult(granted)
+    }
+
+    LaunchedEffect(needsNotificationPermission) {
+        if (needsNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     if (showMcpDialog) {
         McpServerDialog(
             servers = mcpServers,
             onDismiss = { viewModel.toggleMcpDialog() },
             onToggleServer = { serverId -> viewModel.toggleMcpServer(serverId) }
+        )
+    }
+
+    if (showSchedulerInfoDialog) {
+        SchedulerInfoDialog(
+            onDismiss = { showSchedulerInfoDialog = false }
         )
     }
 
@@ -113,6 +143,38 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                     )
                 },
                 actions = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        IconButton(
+                            onClick = { showSchedulerInfoDialog = true },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = "Joke Scheduler Info",
+                                modifier = Modifier.size(20.dp),
+                                tint = if (isSchedulerRunning) {
+                                    MaterialTheme.colorScheme.tertiary
+                                } else {
+                                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                                }
+                            )
+                        }
+                        Switch(
+                            checked = isSchedulerRunning,
+                            onCheckedChange = { viewModel.toggleJokeScheduler() },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.tertiary,
+                                checkedTrackColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                checkedBorderColor = MaterialTheme.colorScheme.tertiary,
+                                uncheckedThumbColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                                uncheckedTrackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f),
+                                uncheckedBorderColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f)
+                            )
+                        )
+                    }
                     val enabledCount = mcpServers.count { it.isEnabled }
                     IconButton(onClick = { viewModel.toggleMcpDialog() }) {
                         if (enabledCount > 0) {
@@ -459,6 +521,50 @@ fun MessageBubble(message: ChatViewModel.Message) {
             }
         }
     }
+}
+
+@Composable
+fun SchedulerInfoDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Default.Notifications,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.size(32.dp)
+            )
+        },
+        title = {
+            Text(
+                text = "🎭 Планировщик шуток",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "При включении переключателя запустится фоновый сервис, который будет:",
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = "• Каждые 30 секунд получать случайную шутку с JokeAPI через MCP-сервер",
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = "• Показывать уведомление с переведённой шуткой",
+                    fontSize = 14.sp
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Понятно")
+            }
+        }
+    )
 }
 
 @Preview(showBackground = true)

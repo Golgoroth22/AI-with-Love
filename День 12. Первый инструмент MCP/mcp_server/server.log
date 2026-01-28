@@ -16,38 +16,31 @@ JokeAPI Integration:
 Press Ctrl+C to stop
 ======================================================================
 
-[2026-01-28 20:18:09] 📨 Received request: tools/call
-[2026-01-28 20:18:09] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
-[2026-01-28 20:18:09] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
-[2026-01-28 20:18:09] 😄 Got twopart joke (ID: 316)
-[2026-01-28 20:18:09] ✨ Tool result: {"category": "Pun", "type": "twopart", "id": 316, "setup": "What do you call a caveman's fart?", "de...
-[2026-01-28 20:18:09] "POST / HTTP/1.1" 200 -
-[2026-01-28 20:18:09] ✅ Response sent successfully
-[2026-01-28 20:27:29] 📨 Received request: tools/call
-[2026-01-28 20:27:29] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
-[2026-01-28 20:27:29] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
-[2026-01-28 20:27:30] 😄 Got twopart joke (ID: 259)
-[2026-01-28 20:27:30] ✨ Tool result: {"category": "Programming", "type": "twopart", "id": 259, "setup": "Why is Linux safe?", "delivery":...
-[2026-01-28 20:27:30] "POST / HTTP/1.1" 200 -
-[2026-01-28 20:27:30] ✅ Response sent successfully
-[2026-01-28 20:30:55] 📨 Received request: tools/call
-[2026-01-28 20:30:55] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
-[2026-01-28 20:30:55] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
-[2026-01-28 20:30:55] 😄 Got single joke (ID: 81)
-[2026-01-28 20:30:55] ✨ Tool result: {"category": "Pun", "type": "single", "id": 81, "joke": "I have these weird muscle spasms in my glut...
-[2026-01-28 20:30:55] "POST / HTTP/1.1" 200 -
-[2026-01-28 20:30:55] ✅ Response sent successfully
-[2026-01-28 20:33:41] 📨 Received request: tools/call
-[2026-01-28 20:33:41] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
-[2026-01-28 20:33:41] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
-[2026-01-28 20:33:42] 😄 Got single joke (ID: 305)
-[2026-01-28 20:33:42] ✨ Tool result: {"category": "Misc", "type": "single", "id": 305, "joke": "Yo mama is so old, she knew Burger King w...
-[2026-01-28 20:33:42] "POST / HTTP/1.1" 200 -
-[2026-01-28 20:33:42] ✅ Response sent successfully
-[2026-01-28 20:34:14] 📨 Received request: tools/call
-[2026-01-28 20:34:14] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
-[2026-01-28 20:34:14] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
-[2026-01-28 20:34:14] 😄 Got twopart joke (ID: 31)
-[2026-01-28 20:34:14] ✨ Tool result: {"category": "Programming", "type": "twopart", "id": 31, "setup": "Why did the JavaScript heap close...
-[2026-01-28 20:34:14] "POST / HTTP/1.1" 200 -
-[2026-01-28 20:34:14] ✅ Response sent successfully
+[2026-01-28 21:39:59] 📨 Received request: tools/call
+[2026-01-28 21:39:59] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
+[2026-01-28 21:39:59] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
+[2026-01-28 21:39:59] 😄 Got twopart joke (ID: 213)
+[2026-01-28 21:39:59] ✨ Tool result: {"category": "Programming", "type": "twopart", "id": 213, "setup": "Why did the programmer jump on t...
+[2026-01-28 21:39:59] "POST / HTTP/1.1" 200 -
+[2026-01-28 21:39:59] ✅ Response sent successfully
+[2026-01-28 21:40:39] 📨 Received request: tools/call
+[2026-01-28 21:40:39] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
+[2026-01-28 21:40:39] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
+[2026-01-28 21:40:39] 😄 Got single joke (ID: 42)
+[2026-01-28 21:40:39] ✨ Tool result: {"category": "Programming", "type": "single", "id": 42, "joke": "Debugging is like being the detecti...
+[2026-01-28 21:40:39] "POST / HTTP/1.1" 200 -
+[2026-01-28 21:40:39] ✅ Response sent successfully
+[2026-01-28 21:41:38] 📨 Received request: tools/call
+[2026-01-28 21:41:38] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
+[2026-01-28 21:41:38] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
+[2026-01-28 21:41:39] 😄 Got single joke (ID: 22)
+[2026-01-28 21:41:39] ✨ Tool result: {"category": "Programming", "type": "single", "id": 22, "joke": "If Bill Gates had a dime for every ...
+[2026-01-28 21:41:39] "POST / HTTP/1.1" 200 -
+[2026-01-28 21:41:39] ✅ Response sent successfully
+[2026-01-28 21:42:59] 📨 Received request: tools/call
+[2026-01-28 21:42:59] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
+[2026-01-28 21:42:59] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
+[2026-01-28 21:43:00] 😄 Got twopart joke (ID: 167)
+[2026-01-28 21:43:00] ✨ Tool result: {"category": "Pun", "type": "twopart", "id": 167, "setup": "Two guys walked into a bar.", "delivery"...
+[2026-01-28 21:43:00] "POST / HTTP/1.1" 200 -
+[2026-01-28 21:43:00] ✅ Response sent successfully
