@@ -1,0 +1,51 @@
+======================================================================
+              🚀 MCP HTTP Server with JokeAPI Integration              
+======================================================================
+Server: http://0.0.0.0:8080
+From Android emulator: http://10.0.2.2:8080
+From real device: http://<your-computer-ip>:8080
+
+Available Tools:
+  🎭 get_joke - Get random jokes from JokeAPI
+
+JokeAPI Integration:
+  • Base URL: https://v2.jokeapi.dev
+  • Categories: Any, Programming, Misc, Dark, Pun, Spooky, Christmas
+  • Safe mode support via blacklist flags
+
+Press Ctrl+C to stop
+======================================================================
+
+[2026-01-28 21:50:46] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
+[2026-01-28 21:50:46] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
+[2026-01-28 21:50:46] 😄 Got twopart joke (ID: 252)
+[2026-01-28 21:50:46] ✨ Tool result: {"category": "Christmas", "type": "twopart", "id": 252, "setup": "Why does Santa go down the chimney...
+[2026-01-28 21:50:46] "POST / HTTP/1.1" 200 -
+[2026-01-28 21:50:46] ✅ Response sent successfully
+[2026-01-28 21:51:33] 📨 Received request: tools/call
+[2026-01-28 21:51:33] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
+[2026-01-28 21:51:33] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
+[2026-01-28 21:51:34] 😄 Got single joke (ID: 272)
+[2026-01-28 21:51:34] ✨ Tool result: {"category": "Misc", "type": "single", "id": 272, "joke": "My husband and I were happy for 20 years....
+[2026-01-28 21:51:34] "POST / HTTP/1.1" 200 -
+[2026-01-28 21:51:34] ✅ Response sent successfully
+[2026-01-28 21:52:11] 📨 Received request: tools/call
+[2026-01-28 21:52:11] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
+[2026-01-28 21:52:11] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
+[2026-01-28 21:52:12] 😄 Got single joke (ID: 256)
+[2026-01-28 21:52:12] ✨ Tool result: {"category": "Misc", "type": "single", "id": 256, "joke": "My wife and I have reached the difficult ...
+[2026-01-28 21:52:12] "POST / HTTP/1.1" 200 -
+[2026-01-28 21:52:12] ✅ Response sent successfully
+[2026-01-28 21:52:54] 📨 Received request: tools/call
+[2026-01-28 21:52:54] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
+[2026-01-28 21:52:54] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
+[2026-01-28 21:52:54] 😄 Got single joke (ID: 24)
+[2026-01-28 21:52:54] ✨ Tool result: {"category": "Programming", "type": "single", "id": 24, "joke": "A byte walks into a bar looking mis...
+[2026-01-28 21:52:54] "POST / HTTP/1.1" 200 -
+[2026-01-28 21:52:54] ✅ Response sent successfully
+[2026-01-28 21:53:42] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
+[2026-01-28 21:53:42] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
+[2026-01-28 21:53:42] 😄 Got twopart joke (ID: 275)
+[2026-01-28 21:53:42] ✨ Tool result: {"category": "Pun", "type": "twopart", "id": 275, "setup": "Did you hear about the claustrophobic as...
+[2026-01-28 21:53:42] "POST / HTTP/1.1" 200 -
+[2026-01-28 21:53:42] ✅ Response sent successfully
