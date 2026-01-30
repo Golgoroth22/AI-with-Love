@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,6 +16,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -25,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.aiwithlove.mcp.McpServerConfig
+import com.example.aiwithlove.mcp.McpToolInfo
 
 @Composable
 fun McpServerDialog(
@@ -115,8 +118,8 @@ fun ServerItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                if (server.isEnabled || server.benefits.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                if (server.tools.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     Column(
                         modifier =
@@ -124,41 +127,23 @@ fun ServerItem(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-                                .padding(8.dp)
+                                .padding(10.dp)
                     ) {
                         Text(
-                            text = "💡 Что даёт включение:",
-                            style = MaterialTheme.typography.labelSmall,
+                            text = "🛠️ Доступные инструменты:",
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary
                         )
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                        Text(
-                            text = server.benefits,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        if (server.tools.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Text(
-                                text = "Доступные инструменты:",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-
-                            Spacer(modifier = Modifier.height(4.dp))
-
-                            server.tools.forEach { tool ->
-                                Text(
-                                    text = "• $tool",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.padding(start = 4.dp, top = 2.dp)
+                        server.tools.forEachIndexed { index, tool ->
+                            ToolItem(tool = tool)
+                            if (index < server.tools.size - 1) {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                                 )
                             }
                         }
@@ -171,5 +156,44 @@ fun ServerItem(
                 onCheckedChange = { onToggle() }
             )
         }
+    }
+}
+
+@Composable
+fun ToolItem(tool: McpToolInfo) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = tool.emoji,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = tool.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = tool.description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 32.dp)
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Триггеры: ${tool.triggerWords.joinToString(", ")}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.tertiary,
+            modifier = Modifier.padding(start = 32.dp)
+        )
     }
 }

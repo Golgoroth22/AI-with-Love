@@ -102,8 +102,4 @@ class McpClient(
         }
 
     private fun getNextRequestId(): Int = ++requestIdCounter
-
-    fun close() {
-        httpClient.close()
-    }
 }

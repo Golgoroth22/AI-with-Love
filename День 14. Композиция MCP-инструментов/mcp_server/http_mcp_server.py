@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MCP Server with JokeAPI Integration
+MCP Server with JokeAPI Integration and SQLite Database
 Supports JSON-RPC 2.0 protocol via HTTP POST
 """
 
@@ -8,7 +8,31 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 import urllib.request
 import urllib.parse
+import sqlite3
+import os
 from datetime import datetime
+
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'jokes.db')
+
+def init_database():
+    """Initialize SQLite database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS saved_jokes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            joke_api_id INTEGER,
+            category TEXT,
+            type TEXT,
+            joke_text TEXT,
+            setup TEXT,
+            delivery TEXT,
+            saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+    print(f"📦 Database initialized: {DB_PATH}")
 
 class MCPServerHandler(BaseHTTPRequestHandler):
     
@@ -81,7 +105,7 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 },
                 'serverInfo': {
                     'name': 'Python HTTP MCP Server',
-                    'version': '1.0.0'
+                    'version': '2.0.0'
                 }
             }
         }
@@ -107,6 +131,54 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                         }
                     }
                 }
+            },
+            {
+                'name': 'save_joke',
+                'description': 'Save a joke to the local database. Use this when user asks to save, remember, or add joke to favorites. Can save jokes in any language (Russian or English).',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'joke_api_id': {
+                            'type': 'integer',
+                            'description': 'Original joke ID from JokeAPI'
+                        },
+                        'category': {
+                            'type': 'string',
+                            'description': 'Joke category from JokeAPI'
+                        },
+                        'type': {
+                            'type': 'string',
+                            'description': 'Joke type: single or twopart'
+                        },
+                        'joke_text': {
+                            'type': 'string',
+                            'description': 'Full joke text for single type jokes (can be in any language)'
+                        },
+                        'setup': {
+                            'type': 'string',
+                            'description': 'Setup part for twopart jokes (can be in any language)'
+                        },
+                        'delivery': {
+                            'type': 'string',
+                            'description': 'Delivery/punchline for twopart jokes (can be in any language)'
+                        }
+                    },
+                    'required': ['type']
+                }
+            },
+            {
+                'name': 'get_saved_jokes',
+                'description': 'Get all saved jokes from the local database. Use this when user asks to show saved jokes, my jokes, or favorites.',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'limit': {
+                            'type': 'integer',
+                            'description': 'Maximum number of jokes to return (default: 50)',
+                            'default': 50
+                        }
+                    }
+                }
             }
         ]
         
@@ -128,10 +200,14 @@ class MCPServerHandler(BaseHTTPRequestHandler):
         try:
             if tool_name == 'get_joke':
                 result = self.tool_get_joke(arguments)
+            elif tool_name == 'save_joke':
+                result = self.tool_save_joke(arguments)
+            elif tool_name == 'get_saved_jokes':
+                result = self.tool_get_saved_jokes(arguments)
             else:
                 raise ValueError(f'Unknown tool: {tool_name}')
             
-            self.log(f"✨ Tool result: {json.dumps(result)[:100]}...")
+            self.log(f"✨ Tool result: {json.dumps(result, ensure_ascii=False)[:100]}...")
             
             return {
                 'jsonrpc': '2.0',
@@ -206,6 +282,100 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 'message': f'Failed to fetch joke: {str(e)}'
             }
     
+    def tool_save_joke(self, args):
+        """Save joke to SQLite database"""
+        joke_api_id = args.get('joke_api_id')
+        category = args.get('category', '')
+        joke_type = args.get('type', 'single')
+        joke_text = args.get('joke_text', '')
+        setup = args.get('setup', '')
+        delivery = args.get('delivery', '')
+        
+        self.log(f"💾 Saving joke: type={joke_type}, category={category}")
+        
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO saved_jokes (joke_api_id, category, type, joke_text, setup, delivery)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (joke_api_id, category, joke_type, joke_text, setup, delivery))
+            
+            joke_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+            
+            self.log(f"✅ Joke saved with ID: {joke_id}")
+            
+            return {
+                'success': True,
+                'message': 'Joke saved successfully',
+                'saved_joke_id': joke_id
+            }
+            
+        except Exception as e:
+            self.log(f"❌ Failed to save joke: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def tool_get_saved_jokes(self, args):
+        """Get all saved jokes from database"""
+        limit = args.get('limit', 50)
+        
+        self.log(f"📖 Getting saved jokes (limit: {limit})")
+        
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT id, joke_api_id, category, type, joke_text, setup, delivery, saved_at
+                FROM saved_jokes
+                ORDER BY saved_at DESC
+                LIMIT ?
+            ''', (limit,))
+            
+            rows = cursor.fetchall()
+            conn.close()
+            
+            jokes = []
+            for row in rows:
+                joke = {
+                    'id': row['id'],
+                    'joke_api_id': row['joke_api_id'],
+                    'category': row['category'],
+                    'type': row['type'],
+                    'saved_at': row['saved_at']
+                }
+                
+                if row['type'] == 'single':
+                    joke['joke'] = row['joke_text']
+                else:
+                    joke['setup'] = row['setup']
+                    joke['delivery'] = row['delivery']
+                
+                jokes.append(joke)
+            
+            self.log(f"📖 Found {len(jokes)} saved jokes")
+            
+            return {
+                'success': True,
+                'count': len(jokes),
+                'jokes': jokes
+            }
+            
+        except Exception as e:
+            self.log(f"❌ Failed to get saved jokes: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'jokes': []
+            }
+    
     def log_message(self, format, *args):
         """Custom log format"""
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -213,18 +383,25 @@ class MCPServerHandler(BaseHTTPRequestHandler):
 
 def run_server(host='0.0.0.0', port=8080):
     """Start MCP HTTP server"""
+    init_database()
+    
     server_address = (host, port)
     httpd = HTTPServer(server_address, MCPServerHandler)
     
     print('=' * 70)
-    print('🚀 MCP HTTP Server with JokeAPI Integration'.center(70))
+    print('🚀 MCP HTTP Server with JokeAPI & SQLite Database'.center(70))
     print('=' * 70)
     print(f'Server: http://{host}:{port}')
     print(f'From Android emulator: http://10.0.2.2:{port}')
     print(f'From real device: http://<your-computer-ip>:{port}')
     print()
     print('Available Tools:')
-    print('  🎭 get_joke - Get random jokes from JokeAPI')
+    print('  🎭 get_joke       - Get random jokes from JokeAPI')
+    print('  💾 save_joke      - Save a joke to local database')
+    print('  📖 get_saved_jokes - Get all saved jokes from database')
+    print()
+    print('Database:')
+    print(f'  📦 SQLite: {DB_PATH}')
     print()
     print('JokeAPI Integration:')
     print('  • Base URL: https://v2.jokeapi.dev')

@@ -1,10 +1,5 @@
 package com.example.aiwithlove.viewmodel
 
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.aiwithlove.data.AgenticResponse
@@ -14,7 +9,6 @@ import com.example.aiwithlove.database.ChatRepository
 import com.example.aiwithlove.mcp.McpClient
 import com.example.aiwithlove.mcp.McpServerConfig
 import com.example.aiwithlove.mcp.McpServers
-import com.example.aiwithlove.scheduler.JokeSchedulerService
 import com.example.aiwithlove.util.ILoggable
 import com.example.aiwithlove.util.runAndCatch
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +21,11 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -35,8 +33,7 @@ import kotlinx.serialization.json.putJsonObject
 class ChatViewModel(
     private val perplexityService: PerplexityApiService,
     private val chatRepository: ChatRepository,
-    private val mcpClient: McpClient,
-    private val context: Context
+    private val mcpClient: McpClient
 ) : ViewModel(),
     ILoggable {
 
@@ -53,56 +50,11 @@ class ChatViewModel(
     private val _showMcpDialog = MutableStateFlow(false)
     val showMcpDialog: StateFlow<Boolean> = _showMcpDialog.asStateFlow()
 
-    private val _isSchedulerRunning = MutableStateFlow(false)
-    val isSchedulerRunning: StateFlow<Boolean> = _isSchedulerRunning.asStateFlow()
-
-    private val _needsNotificationPermission = MutableStateFlow(false)
-    val needsNotificationPermission: StateFlow<Boolean> = _needsNotificationPermission.asStateFlow()
-
-    private var storedSummary: Message? = null
     private var userMessagesCountSinceAppLaunch = 0
+    private var lastJokeResult: String? = null
 
     init {
         loadChatHistory()
-    }
-
-    fun toggleJokeScheduler() {
-        if (_isSchedulerRunning.value) {
-            stopJokeScheduler()
-        } else {
-            startJokeScheduler()
-        }
-    }
-
-    fun startJokeScheduler() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val hasPermission = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-
-            if (!hasPermission) {
-                _needsNotificationPermission.value = true
-                return
-            }
-        }
-
-        JokeSchedulerService.start(context)
-        _isSchedulerRunning.value = true
-        logD("Joke scheduler started")
-    }
-
-    fun stopJokeScheduler() {
-        JokeSchedulerService.stop(context)
-        _isSchedulerRunning.value = false
-        logD("Joke scheduler stopped")
-    }
-
-    fun onNotificationPermissionResult(granted: Boolean) {
-        _needsNotificationPermission.value = false
-        if (granted) {
-            startJokeScheduler()
-        }
     }
 
     fun toggleMcpDialog() {
@@ -122,9 +74,38 @@ class ChatViewModel(
 
     private fun isJokeServerEnabled(): Boolean = _mcpServers.value.any { it.id == "jokes" && it.isEnabled }
 
-    private fun userMentionsJokeApi(message: String): Boolean {
-        val keywords = listOf("jokeapi", "joke api", "джокапи", "жокапи", "joke-api")
-        return keywords.any { message.lowercase().contains(it) }
+    private fun userMentionsJokes(message: String): Boolean {
+        val lowerMessage = message.lowercase()
+
+        val keywords =
+            listOf(
+                "jokeapi",
+                "joke api",
+                "джокапи",
+                "жокапи",
+                "joke-api",
+                "шутк",
+                "анекдот",
+                "пошути",
+                "рассмеши",
+                "мои шутки",
+                "избранные шутки",
+                "сохранённые шутки",
+                "сохраненные шутки"
+            )
+
+        if (keywords.any { lowerMessage.contains(it) }) {
+            return true
+        }
+
+        val savePatterns =
+            listOf(
+                Regex("""сохрани\s+(её|ее|его|их)"""),
+                Regex("""запомни\s+(её|ее|его|их)"""),
+                Regex("""добавь\s+(её|ее|его|их)""")
+            )
+
+        return savePatterns.any { it.find(lowerMessage) != null }
     }
 
     private fun buildAgenticJokeTool(): AgenticTool {
@@ -150,6 +131,71 @@ class ChatViewModel(
             type = "function",
             name = "get_joke",
             description = "Fetches a random joke from JokeAPI. Call this tool to get a joke, then translate it to Russian for the user.",
+            parameters = parameters
+        )
+    }
+
+    private fun buildSaveJokeTool(): AgenticTool {
+        val parameters =
+            buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("joke_api_id") {
+                        put("type", "integer")
+                        put("description", "Original joke ID from JokeAPI")
+                    }
+                    putJsonObject("category") {
+                        put("type", "string")
+                        put("description", "Joke category from JokeAPI")
+                    }
+                    putJsonObject("type") {
+                        put("type", "string")
+                        put("description", "Joke type: single or twopart")
+                    }
+                    putJsonObject("joke_text") {
+                        put("type", "string")
+                        put("description", "Full joke text for single type jokes (translated Russian version)")
+                    }
+                    putJsonObject("setup") {
+                        put("type", "string")
+                        put("description", "Setup part for twopart jokes (translated Russian version)")
+                    }
+                    putJsonObject("delivery") {
+                        put("type", "string")
+                        put("description", "Delivery/punchline for twopart jokes (translated Russian version)")
+                    }
+                }
+                putJsonArray("required") {
+                    add(JsonPrimitive("type"))
+                }
+            }
+
+        return AgenticTool(
+            type = "function",
+            name = "save_joke",
+            description = "Save a joke to the local database. Use this when user asks to save, remember, or add joke to favorites. Pass the translated Russian joke text.",
+            parameters = parameters
+        )
+    }
+
+    private fun buildGetSavedJokesTool(): AgenticTool {
+        val parameters =
+            buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("limit") {
+                        put("type", "integer")
+                        put("description", "Maximum number of jokes to return (default: 50)")
+                        put("default", 50)
+                    }
+                }
+                putJsonArray("required") { }
+            }
+
+        return AgenticTool(
+            type = "function",
+            name = "get_saved_jokes",
+            description = "Get all saved jokes from the local database. Use this when user asks to show saved jokes, my jokes, or favorites.",
             parameters = parameters
         )
     }
@@ -222,6 +268,64 @@ class ChatViewModel(
                 }
             }
 
+            "save_joke" -> {
+                runAndCatch {
+                    val args = parseToolArguments(arguments)
+                    val requestBody = arguments ?: "{}"
+                    logD("🔧 Calling MCP server save_joke with args: $args")
+
+                    val mcpResult = mcpClient.callTool("save_joke", args)
+                    logD("🔧 MCP result: $mcpResult")
+
+                    val parsedResult = parseJokeFromMcpResult(mcpResult)
+
+                    ToolExecutionResult(
+                        result = parsedResult,
+                        mcpToolInfo =
+                            McpToolInfo(
+                                toolName = "save_joke",
+                                requestBody = requestBody,
+                                responseBody = parsedResult
+                            )
+                    )
+                }.getOrElse { error ->
+                    logE("🔧 Tool execution failed", error)
+                    ToolExecutionResult(
+                        result = """{"error": true, "message": "${error.message}"}""",
+                        mcpToolInfo = null
+                    )
+                }
+            }
+
+            "get_saved_jokes" -> {
+                runAndCatch {
+                    val args = parseToolArguments(arguments)
+                    val requestBody = arguments ?: "{}"
+                    logD("🔧 Calling MCP server get_saved_jokes with args: $args")
+
+                    val mcpResult = mcpClient.callTool("get_saved_jokes", args)
+                    logD("🔧 MCP result: $mcpResult")
+
+                    val parsedResult = parseJokeFromMcpResult(mcpResult)
+
+                    ToolExecutionResult(
+                        result = parsedResult,
+                        mcpToolInfo =
+                            McpToolInfo(
+                                toolName = "get_saved_jokes",
+                                requestBody = requestBody,
+                                responseBody = parsedResult
+                            )
+                    )
+                }.getOrElse { error ->
+                    logE("🔧 Tool execution failed", error)
+                    ToolExecutionResult(
+                        result = """{"error": true, "message": "${error.message}"}""",
+                        mcpToolInfo = null
+                    )
+                }
+            }
+
             else -> {
                 logE("🔧 Unknown tool: $toolName", null)
                 ToolExecutionResult(
@@ -232,11 +336,64 @@ class ChatViewModel(
         }
     }
 
+    private fun parseToolArguments(arguments: String?): Map<String, Any> {
+        if (arguments == null) return emptyMap()
+        return try {
+            val argsJson = Json.parseToJsonElement(arguments)
+            if (argsJson is JsonObject) {
+                argsJson.entries.associate { (key, value) ->
+                    key to
+                        when (value) {
+                            is JsonPrimitive -> {
+                                when {
+                                    value.isString -> value.content
+                                    value.intOrNull != null -> value.int
+                                    value.booleanOrNull != null -> value.boolean
+                                    else -> value.content
+                                }
+                            }
+
+                            else -> {
+                                value.toString()
+                            }
+                        }
+                }
+            } else {
+                emptyMap()
+            }
+        } catch (e: Exception) {
+            logE("🔧 Failed to parse tool arguments", e)
+            emptyMap()
+        }
+    }
+
     private fun defaultJokeArgs() =
         mapOf(
             "category" to "Any",
             "blacklistFlags" to "nsfw,religious,political,racist,sexist,explicit"
         )
+
+    private fun userWantsToSaveJoke(message: String): Boolean {
+        val lowerMessage = message.lowercase()
+        val savePatterns =
+            listOf(
+                Regex("""сохрани\s+(её|ее|его|их|эту\s+шутку|шутку)"""),
+                Regex("""запомни\s+(её|ее|его|их|эту\s+шутку|шутку)"""),
+                Regex("""добавь\s+(её|ее|его|их)\s+(в\s+избранное)?"""),
+                Regex("""добавь\s+в\s+избранное""")
+            )
+        return savePatterns.any { it.find(lowerMessage) != null }
+    }
+
+    private fun buildInstructions(useJokeTools: Boolean): String {
+        val baseInstruction = "You are a helpful assistant. Respond in Russian."
+        if (!useJokeTools) return baseInstruction
+
+        return """$baseInstruction
+When user asks for a joke, use the get_joke tool and translate the result to Russian.
+When user asks to save a joke, use the save_joke tool with the TRANSLATED Russian version. Extract from the most recent get_joke tool result: joke_api_id (from "id" field), category, type. For the joke text, use your translated Russian version - either joke_text (for type="single") or setup and delivery (for type="twopart").
+When user asks for saved/favorite jokes, use the get_saved_jokes tool. Present the jokes in a nice format."""
+    }
 
     private fun parseJokeFromMcpResult(mcpResult: String): String =
         runAndCatch {
@@ -261,8 +418,6 @@ class ChatViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             runAndCatch {
                 val summary = chatRepository.getSummary()
-                storedSummary = summary
-
                 val savedMessages = chatRepository.getAllMessages()
                 if (savedMessages.isNotEmpty()) {
                     logD("Загружено ${savedMessages.size} сообщений из БД")
@@ -286,7 +441,6 @@ class ChatViewModel(
             runAndCatch {
                 chatRepository.clearAllMessages()
                 chatRepository.clearSummary()
-                storedSummary = null
                 userMessagesCountSinceAppLaunch = 0
                 _messages.value = listOf(Message(text = CONGRATS_MESSAGE, isFromUser = false))
                 logD("Чат очищен, контекст сброшен, БД очищена")
@@ -325,35 +479,40 @@ class ChatViewModel(
         val thinkingMessageIndex = _messages.value.size - 1
 
         viewModelScope.launch(Dispatchers.IO) {
-            val useTools = isJokeServerEnabled() && userMentionsJokeApi(userMessage)
-            logD("🎭 Use Agentic API, tools enabled: $useTools")
-            sendWithAgenticApi(userMessage, thinkingMessageIndex, useTools)
+            val useJokeTools = isJokeServerEnabled() && userMentionsJokes(userMessage)
+            logD("🎭 Use Agentic API with all joke tools: $useJokeTools")
+            sendWithAgenticApi(userMessage, thinkingMessageIndex, useJokeTools)
         }
     }
 
     private suspend fun sendWithAgenticApi(
         userMessage: String,
         thinkingMessageIndex: Int,
-        useTools: Boolean = false
+        useJokeTools: Boolean = false
     ) {
-        var capturedMcpToolInfo: McpToolInfo? = null
+        val capturedMcpToolInfoList = mutableListOf<McpToolInfo>()
 
         runAndCatch {
             val conversationContext = buildConversationContext()
-            val input =
+            var input =
                 if (conversationContext.isNotEmpty()) {
                     "$conversationContext\n\nUser: $userMessage"
                 } else {
                     userMessage
                 }
 
-            val tools = if (useTools) listOf(buildAgenticJokeTool()) else null
-            val instructions =
-                if (useTools) {
-                    "You are a helpful assistant. When user asks for a joke using JokeAPI, use the get_joke tool and translate the result to Russian. Respond in Russian."
+            if (useJokeTools && userWantsToSaveJoke(userMessage) && lastJokeResult != null) {
+                input = "$input\n\nLast joke from JokeAPI: $lastJokeResult"
+                logD("🔧 Adding last joke result to context for saving")
+            }
+
+            val tools =
+                if (useJokeTools) {
+                    listOf(buildAgenticJokeTool(), buildSaveJokeTool(), buildGetSavedJokesTool())
                 } else {
-                    "You are a helpful assistant. Respond in Russian."
+                    null
                 }
+            val instructions = buildInstructions(useJokeTools)
 
             logD("📤 Sending Agentic request with ${tools?.size ?: 0} tools")
 
@@ -382,7 +541,10 @@ class ChatViewModel(
                     toolResults.add("Tool $toolName result: ${executionResult.result}")
 
                     if (executionResult.mcpToolInfo != null) {
-                        capturedMcpToolInfo = executionResult.mcpToolInfo
+                        capturedMcpToolInfoList.add(executionResult.mcpToolInfo)
+                        if (toolName == "get_joke") {
+                            lastJokeResult = executionResult.result
+                        }
                     }
                 }
 
@@ -403,7 +565,7 @@ class ChatViewModel(
             response
         }.onSuccess { response ->
             val fullResponse = extractTextFromResponse(response)
-            val mcpInfo = capturedMcpToolInfo
+            val mcpInfo = if (capturedMcpToolInfoList.isNotEmpty()) capturedMcpToolInfoList else null
 
             val usage = response.usage
             val promptTokens = usage?.inputTokens ?: 0
@@ -493,7 +655,7 @@ class ChatViewModel(
         val isSummary: Boolean = false,
         val isCompressionNotice: Boolean = false,
         val isCompressed: Boolean = false,
-        val mcpToolInfo: McpToolInfo? = null
+        val mcpToolInfo: List<McpToolInfo>? = null
     )
 
     data class McpToolInfo(
@@ -507,7 +669,7 @@ class ChatViewModel(
         messageIndex: Int,
         promptTokens: Int,
         completionTokens: Int,
-        mcpToolInfo: McpToolInfo? = null
+        mcpToolInfo: List<McpToolInfo>? = null
     ) {
         val charsPerDelay = 3
         val delayMs = 30L
@@ -669,8 +831,6 @@ $conversationText
 
                     _messages.value = listOf(welcomeMessage, summaryMessage) + visibleMessages
 
-                    storedSummary = summaryMessage
-
                     viewModelScope.launch(Dispatchers.IO) {
                         runAndCatch {
                             val totalMessagesInDb = chatRepository.getAllMessages().size
@@ -702,6 +862,9 @@ $conversationText
             "Привет! Я ваш ИИ-помощник на базе Perplexity Agentic API " +
                 "(модель: $AGENTIC_MODEL).\n\n🗜️ Включено" +
                 " автоматическое сжатие диалога каждые $COMPRESSION_THRESHOLD ваших сообщений для" +
-                " оптимизации токенов!\n\n🎭 Включите JokeAPI MCP-сервер и напишите 'jokeapi' для получения шуток!\n\nЧем могу помочь?"
+                " оптимизации токенов!\n\n🎭 Включите JokeAPI MCP-сервер:\n" +
+                "• 'шутка' или 'анекдот' — получить шутку\n" +
+                "• 'сохрани шутку' — сохранить в избранное\n" +
+                "• 'мои шутки' — показать сохранённые\n\nЧем могу помочь?"
     }
 }

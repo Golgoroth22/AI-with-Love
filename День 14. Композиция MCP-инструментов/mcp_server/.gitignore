@@ -1,2 +1,3 @@
 /requirements.txt
 *.pid
+/jokes.db

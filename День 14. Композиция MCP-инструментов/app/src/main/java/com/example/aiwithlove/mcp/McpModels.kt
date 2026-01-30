@@ -23,6 +23,5 @@ data class McpResponse(
 @Serializable
 data class McpError(
     val code: Int,
-    val message: String,
-    val data: JsonElement? = null
+    val message: String
 )

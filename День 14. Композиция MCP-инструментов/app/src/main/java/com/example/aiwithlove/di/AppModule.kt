@@ -6,7 +6,6 @@ import com.example.aiwithlove.database.AppDatabase
 import com.example.aiwithlove.database.ChatMessageDao
 import com.example.aiwithlove.database.ChatRepository
 import com.example.aiwithlove.mcp.McpClient
-import com.example.aiwithlove.scheduler.NotificationHelper
 import com.example.aiwithlove.util.SecureData
 import com.example.aiwithlove.viewmodel.ChatViewModel
 import org.koin.android.ext.koin.androidContext
@@ -35,9 +34,5 @@ val appModule =
             McpClient("http://10.0.2.2:8080")
         }
 
-        single {
-            NotificationHelper(androidContext())
-        }
-
-        viewModel { ChatViewModel(get(), get(), get(), androidContext()) }
+        viewModel { ChatViewModel(get(), get(), get()) }
     }
