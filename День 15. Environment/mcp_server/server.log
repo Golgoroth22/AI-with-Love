@@ -1,0 +1,66 @@
+📦 Database initialized: /Users/falin/AndroidStudioProjects/AI-with-Love/День 14. Композиция MCP-инструментов/mcp_server/jokes.db
+======================================================================
+           🚀 MCP HTTP Server with JokeAPI & SQLite Database           
+======================================================================
+Server: http://0.0.0.0:8080
+From Android emulator: http://10.0.2.2:8080
+From real device: http://<your-computer-ip>:8080
+
+Available Tools:
+  🎭 get_joke       - Get random jokes from JokeAPI
+  💾 save_joke      - Save a joke to local database
+  📖 get_saved_jokes - Get all saved jokes from database
+
+Database:
+  📦 SQLite: /Users/falin/AndroidStudioProjects/AI-with-Love/День 14. Композиция MCP-инструментов/mcp_server/jokes.db
+
+JokeAPI Integration:
+  • Base URL: https://v2.jokeapi.dev
+  • Categories: Any, Programming, Misc, Dark, Pun, Spooky, Christmas
+  • Safe mode support via blacklist flags
+
+Press Ctrl+C to stop
+======================================================================
+
+[2026-01-30 14:16:37] 📨 Received request: tools/call
+[2026-01-30 14:16:37] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
+[2026-01-30 14:16:37] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
+[2026-01-30 14:16:37] 😄 Got single joke (ID: 303)
+[2026-01-30 14:16:37] ✨ Tool result: {"category": "Misc", "type": "single", "id": 303, "joke": "I visited my friend at his new house. He ...
+[2026-01-30 14:16:37] "POST / HTTP/1.1" 200 -
+[2026-01-30 14:16:37] ✅ Response sent successfully
+[2026-01-30 14:17:55] 📨 Received request: tools/call
+[2026-01-30 14:17:55] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
+[2026-01-30 14:17:55] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
+[2026-01-30 14:17:55] 😄 Got twopart joke (ID: 221)
+[2026-01-30 14:17:55] ✨ Tool result: {"category": "Pun", "type": "twopart", "id": 221, "setup": "Why do cows wear bells?", "delivery": "B...
+[2026-01-30 14:17:55] "POST / HTTP/1.1" 200 -
+[2026-01-30 14:17:55] ✅ Response sent successfully
+[2026-01-30 14:18:27] 📨 Received request: tools/call
+[2026-01-30 14:18:27] 🔧 Calling tool: save_joke with args: {'category': 'Pun', 'delivery': 'Потому что их рога не гудят.', 'joke_api_id': 221, 'joke_text': '', 'setup': 'Почему коровы носят колокольчики?', 'type': 'twopart'}
+[2026-01-30 14:18:27] 💾 Saving joke: type=twopart, category=Pun
+[2026-01-30 14:18:27] ✅ Joke saved with ID: 1
+[2026-01-30 14:18:27] ✨ Tool result: {"success": true, "message": "Joke saved successfully", "saved_joke_id": 1}...
+[2026-01-30 14:18:27] "POST / HTTP/1.1" 200 -
+[2026-01-30 14:18:27] ✅ Response sent successfully
+[2026-01-30 14:19:06] 📨 Received request: tools/call
+[2026-01-30 14:19:06] 🔧 Calling tool: get_joke with args: {'category': 'Any', 'blacklistFlags': 'nsfw,religious,political,racist,sexist,explicit'}
+[2026-01-30 14:19:06] 🌐 Requesting JokeAPI: https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw%2Creligious%2Cpolitical%2Cracist%2Csexist%2Cexplicit
+[2026-01-30 14:19:06] 😄 Got twopart joke (ID: 264)
+[2026-01-30 14:19:06] ✨ Tool result: {"category": "Programming", "type": "twopart", "id": 264, "setup": "Why did the database administrat...
+[2026-01-30 14:19:06] "POST / HTTP/1.1" 200 -
+[2026-01-30 14:19:06] ✅ Response sent successfully
+[2026-01-30 14:19:14] 📨 Received request: tools/call
+[2026-01-30 14:19:14] 🔧 Calling tool: save_joke with args: {'category': 'Programming', 'delivery': 'Потому что у неё были отношения «один ко многим».', 'joke_api_id': 264, 'joke_text': '', 'setup': 'Почему администратор базы данных ушёл от жены?', 'type': 'twopart'}
+[2026-01-30 14:19:14] 💾 Saving joke: type=twopart, category=Programming
+[2026-01-30 14:19:14] ✅ Joke saved with ID: 2
+[2026-01-30 14:19:14] ✨ Tool result: {"success": true, "message": "Joke saved successfully", "saved_joke_id": 2}...
+[2026-01-30 14:19:14] "POST / HTTP/1.1" 200 -
+[2026-01-30 14:19:14] ✅ Response sent successfully
+[2026-01-30 14:19:57] 📨 Received request: tools/call
+[2026-01-30 14:19:57] 🔧 Calling tool: get_saved_jokes with args: {'limit': 50}
+[2026-01-30 14:19:57] 📖 Getting saved jokes (limit: 50)
+[2026-01-30 14:19:57] 📖 Found 2 saved jokes
+[2026-01-30 14:19:57] ✨ Tool result: {"success": true, "count": 2, "jokes": [{"id": 2, "joke_api_id": 264, "category": "Programming", "ty...
+[2026-01-30 14:19:57] "POST / HTTP/1.1" 200 -
+[2026-01-30 14:19:57] ✅ Response sent successfully
