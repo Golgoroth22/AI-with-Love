@@ -7,6 +7,7 @@ import com.example.aiwithlove.database.ChatMessageDao
 import com.example.aiwithlove.database.ChatRepository
 import com.example.aiwithlove.mcp.McpClient
 import com.example.aiwithlove.util.SecureData
+import com.example.aiwithlove.util.ServerConfig
 import com.example.aiwithlove.viewmodel.ChatViewModel
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
@@ -31,8 +32,8 @@ val appModule =
         }
 
         single {
-            McpClient("http://10.0.2.2:8080")
+            McpClient(ServerConfig.MCP_SERVER_URL)
         }
 
-        viewModel { ChatViewModel(get(), get(), get()) }
+        viewModel { ChatViewModel(get(), get(), get(), androidContext()) }
     }

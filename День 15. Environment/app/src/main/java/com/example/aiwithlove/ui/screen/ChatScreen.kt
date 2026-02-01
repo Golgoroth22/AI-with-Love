@@ -3,6 +3,7 @@ package com.example.aiwithlove.ui.screen
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -309,6 +310,69 @@ fun MessageBubble(message: ChatViewModel.Message) {
                 fontSize = 16.sp,
                 lineHeight = 20.sp
             )
+
+            // Show attached log file if present
+            if (!message.isFromUser && message.attachedLogFile != null) {
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val logFile = java.io.File(message.attachedLogFile)
+
+                if (logFile.exists()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .clickable {
+                                // Open file with system file picker
+                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
+                                val uri = androidx.core.content.FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.provider",
+                                    logFile
+                                )
+                                intent.setDataAndType(uri, "text/plain")
+                                intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                try {
+                                    context.startActivity(android.content.Intent.createChooser(intent, "Open log file with"))
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "No app found to open this file", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "📄",
+                                fontSize = 20.sp
+                            )
+                            Column {
+                                Text(
+                                    text = logFile.name,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "${logFile.length() / 1024} KB • Tap to open",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             if (!message.isFromUser && message.mcpToolInfo != null && message.mcpToolInfo.isNotEmpty()) {
                 Column(
                     modifier = Modifier.padding(top = 8.dp),

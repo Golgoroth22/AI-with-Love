@@ -10,9 +10,11 @@ import urllib.request
 import urllib.parse
 import sqlite3
 import os
+import subprocess
+import re
 from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'jokes.db')
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'jokes.db')
 
 def init_database():
     """Initialize SQLite database"""
@@ -179,6 +181,14 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                         }
                     }
                 }
+            },
+            {
+                'name': 'run_tests',
+                'description': 'Run MCP server tests in an isolated Docker container. Use this when user asks to run tests, test the server, or check if everything works. Returns summary of test results.',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {}
+                }
             }
         ]
         
@@ -204,6 +214,8 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 result = self.tool_save_joke(arguments)
             elif tool_name == 'get_saved_jokes':
                 result = self.tool_get_saved_jokes(arguments)
+            elif tool_name == 'run_tests':
+                result = self.tool_run_tests(arguments)
             else:
                 raise ValueError(f'Unknown tool: {tool_name}')
             
@@ -376,6 +388,155 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 'jokes': []
             }
     
+    def tool_run_tests(self, args):
+        """Run tests in Docker container"""
+        import time
+        from datetime import datetime
+
+        start_time = time.time()
+        start_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+
+        self.log(f"🐳 Running tests in Docker container...")
+
+        # Build detailed server logs
+        server_logs = []
+        server_logs.append(f"[{start_timestamp}] Test execution initiated")
+        server_logs.append(f"[{start_timestamp}] Preparing Docker environment...")
+
+        try:
+            # Check if Docker is available
+            docker_check_start = time.time()
+            docker_check_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+            server_logs.append(f"[{docker_check_timestamp}] Checking Docker availability...")
+
+            # Run Docker container with tests
+            docker_start_time = time.time()
+            docker_start_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+            server_logs.append(f"[{docker_start_timestamp}] Launching Docker container 'mcp-server-tests'...")
+            server_logs.append(f"[{docker_start_timestamp}] Command: docker run --rm mcp-server-tests")
+
+            result = subprocess.run(
+                [
+                    'docker', 'run', '--rm',
+                    'mcp-server-tests'
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+
+            docker_end_time = time.time()
+            docker_end_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+            docker_execution_time = docker_end_time - docker_start_time
+
+            server_logs.append(f"[{docker_end_timestamp}] Docker container finished execution")
+            server_logs.append(f"[{docker_end_timestamp}] Container execution time: {docker_execution_time:.2f}s")
+            server_logs.append(f"[{docker_end_timestamp}] Return code: {result.returncode}")
+
+            execution_time = time.time() - start_time
+            output = result.stdout + result.stderr
+
+            server_logs.append(f"[{docker_end_timestamp}] Parsing test results...")
+
+            self.log(f"🐳 Docker execution completed with return code: {result.returncode}")
+
+            # Parse test results from output
+            # Look for patterns like "Ran X tests" and "FAILED (failures=Y, errors=Z)" or "OK"
+            tests_run = 0
+            failures = 0
+            errors = 0
+            success = False
+
+            # Extract "Ran X tests"
+            ran_match = re.search(r'Ran (\d+) test', output)
+            if ran_match:
+                tests_run = int(ran_match.group(1))
+
+            # Check if all tests passed
+            if 'OK' in output and result.returncode == 0:
+                success = True
+                passed = tests_run
+                server_logs.append(f"[{docker_end_timestamp}] ✅ All tests passed!")
+            else:
+                # Extract failures and errors
+                fail_match = re.search(r'failures=(\d+)', output)
+                error_match = re.search(r'errors=(\d+)', output)
+
+                if fail_match:
+                    failures = int(fail_match.group(1))
+                if error_match:
+                    errors = int(error_match.group(1))
+
+                passed = tests_run - failures - errors
+
+                if failures > 0:
+                    server_logs.append(f"[{docker_end_timestamp}] ❌ Found {failures} test failure(s)")
+                if errors > 0:
+                    server_logs.append(f"[{docker_end_timestamp}] ❌ Found {errors} test error(s)")
+
+            end_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+            server_logs.append(f"[{end_timestamp}] Test results: {passed} passed, {failures} failed, {errors} errors")
+            server_logs.append(f"[{end_timestamp}] Total execution time: {execution_time:.2f}s")
+            server_logs.append(f"[{end_timestamp}] Test execution completed successfully")
+
+            self.log(f"✅ Test results: {passed} passed, {failures} failed, {errors} errors (took {execution_time:.2f}s)")
+
+            return {
+                'success': success,
+                'tests_run': tests_run,
+                'passed': passed,
+                'failed': failures,
+                'errors': errors,
+                'execution_time': f"{execution_time:.2f}s",
+                'summary': f"{passed} passed, {failures} failed, {errors} errors out of {tests_run} tests",
+                'server_logs': '\n'.join(server_logs),
+                'output': output[-1000:] if len(output) > 1000 else output  # Last 1000 chars
+            }
+
+        except subprocess.TimeoutExpired:
+            timeout_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+            server_logs.append(f"[{timeout_timestamp}] ⏰ ERROR: Test execution timed out after 120 seconds")
+            server_logs.append(f"[{timeout_timestamp}] Docker container was forcefully terminated")
+            self.log(f"⏰ Test execution timed out after 120 seconds")
+            return {
+                'success': False,
+                'error': 'Test execution timed out after 120 seconds',
+                'tests_run': 0,
+                'passed': 0,
+                'failed': 0,
+                'errors': 0,
+                'server_logs': '\n'.join(server_logs)
+            }
+        except FileNotFoundError:
+            error_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+            server_logs.append(f"[{error_timestamp}] ❌ ERROR: Docker command not found")
+            server_logs.append(f"[{error_timestamp}] Please ensure Docker is installed and running")
+            server_logs.append(f"[{error_timestamp}] Check: 'docker --version' and 'docker ps'")
+            self.log(f"❌ Docker not found or not running")
+            return {
+                'success': False,
+                'error': 'Docker is not installed or not running',
+                'tests_run': 0,
+                'passed': 0,
+                'failed': 0,
+                'errors': 0,
+                'server_logs': '\n'.join(server_logs)
+            }
+        except Exception as e:
+            error_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+            server_logs.append(f"[{error_timestamp}] ❌ FATAL ERROR: {str(e)}")
+            server_logs.append(f"[{error_timestamp}] Exception type: {type(e).__name__}")
+            self.log(f"❌ Failed to run tests: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'tests_run': 0,
+                'passed': 0,
+                'failed': 0,
+                'errors': 0,
+                'server_logs': '\n'.join(server_logs)
+            }
+
     def log_message(self, format, *args):
         """Custom log format"""
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -395,10 +556,11 @@ def run_server(host='0.0.0.0', port=8080):
     print(f'From Android emulator: http://10.0.2.2:{port}')
     print(f'From real device: http://<your-computer-ip>:{port}')
     print()
-    print('Available Tools:')
-    print('  🎭 get_joke       - Get random jokes from JokeAPI')
-    print('  💾 save_joke      - Save a joke to local database')
+    print('Available Tools (4):')
+    print('  🎭 get_joke        - Get random jokes from JokeAPI')
+    print('  💾 save_joke       - Save a joke to local database')
     print('  📖 get_saved_jokes - Get all saved jokes from database')
+    print('  🧪 run_tests       - Run server tests in Docker container')
     print()
     print('Database:')
     print(f'  📦 SQLite: {DB_PATH}')
@@ -407,6 +569,11 @@ def run_server(host='0.0.0.0', port=8080):
     print('  • Base URL: https://v2.jokeapi.dev')
     print('  • Categories: Any, Programming, Misc, Dark, Pun, Spooky, Christmas')
     print('  • Safe mode support via blacklist flags')
+    print()
+    print('Docker Testing:')
+    print('  • Image: mcp-server-tests')
+    print('  • Timeout: 120 seconds')
+    print('  • Auto-cleanup: enabled')
     print()
     print('Press Ctrl+C to stop')
     print('=' * 70)

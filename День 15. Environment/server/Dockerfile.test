@@ -1,0 +1,18 @@
+# Dockerfile for MCP Server Testing Environment
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Copy server and test files
+COPY http_mcp_server.py .
+COPY test_http_mcp_server.py .
+
+# Create data directory for SQLite database
+RUN mkdir -p data
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+
+# Run tests by default
+CMD ["python3", "-m", "unittest", "test_http_mcp_server", "-v"]

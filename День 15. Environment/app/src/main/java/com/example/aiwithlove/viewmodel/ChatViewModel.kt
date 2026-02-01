@@ -33,7 +33,8 @@ import kotlinx.serialization.json.putJsonObject
 class ChatViewModel(
     private val perplexityService: PerplexityApiService,
     private val chatRepository: ChatRepository,
-    private val mcpClient: McpClient
+    private val mcpClient: McpClient,
+    private val context: android.content.Context
 ) : ViewModel(),
     ILoggable {
 
@@ -91,7 +92,15 @@ class ChatViewModel(
                 "мои шутки",
                 "избранные шутки",
                 "сохранённые шутки",
-                "сохраненные шутки"
+                "сохраненные шутки",
+                // Test-related keywords
+                "тест",
+                "запусти тест",
+                "протестируй",
+                "проверь работу",
+                "проверь сервер",
+                "run test",
+                "run_test"
             )
 
         if (keywords.any { lowerMessage.contains(it) }) {
@@ -196,6 +205,22 @@ class ChatViewModel(
             type = "function",
             name = "get_saved_jokes",
             description = "Get all saved jokes from the local database. Use this when user asks to show saved jokes, my jokes, or favorites.",
+            parameters = parameters
+        )
+    }
+
+    private fun buildRunTestsTool(): AgenticTool {
+        val parameters =
+            buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") { }
+                putJsonArray("required") { }
+            }
+
+        return AgenticTool(
+            type = "function",
+            name = "run_tests",
+            description = "Run MCP server tests in an isolated Docker container. Use this when user asks to run tests, test the server, or check if everything works. Returns summary of test results.",
             parameters = parameters
         )
     }
@@ -326,6 +351,35 @@ class ChatViewModel(
                 }
             }
 
+            "run_tests" -> {
+                runAndCatch {
+                    val args = parseToolArguments(arguments)
+                    val requestBody = arguments ?: "{}"
+                    logD("🧪 Calling MCP server run_tests")
+
+                    val mcpResult = mcpClient.callTool("run_tests", args)
+                    logD("🧪 MCP result: $mcpResult")
+
+                    val parsedResult = parseJokeFromMcpResult(mcpResult)
+
+                    ToolExecutionResult(
+                        result = parsedResult,
+                        mcpToolInfo =
+                            McpToolInfo(
+                                toolName = "run_tests",
+                                requestBody = requestBody,
+                                responseBody = parsedResult
+                            )
+                    )
+                }.getOrElse { error ->
+                    logE("🧪 Tool execution failed", error)
+                    ToolExecutionResult(
+                        result = """{"error": true, "message": "${error.message}"}""",
+                        mcpToolInfo = null
+                    )
+                }
+            }
+
             else -> {
                 logE("🔧 Unknown tool: $toolName", null)
                 ToolExecutionResult(
@@ -333,6 +387,33 @@ class ChatViewModel(
                     mcpToolInfo = null
                 )
             }
+        }
+    }
+
+    private fun saveLogsToFile(logsContent: String): String {
+        return try {
+            val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", java.util.Locale.getDefault())
+                .format(java.util.Date())
+            val fileName = "test_logs_$timestamp.txt"
+
+            // Delete previous log file (keep only the most recent)
+            val logsDir = context.filesDir
+            logsDir.listFiles()?.forEach { file ->
+                if (file.name.startsWith("test_logs_") && file.name.endsWith(".txt")) {
+                    file.delete()
+                    logD("Deleted old log file: ${file.name}")
+                }
+            }
+
+            // Create new log file
+            val logFile = java.io.File(logsDir, fileName)
+            logFile.writeText(logsContent)
+            logD("Saved logs to file: ${logFile.absolutePath}")
+
+            logFile.absolutePath
+        } catch (e: Exception) {
+            logE("Failed to save logs to file", e)
+            ""
         }
     }
 
@@ -392,7 +473,18 @@ class ChatViewModel(
         return """$baseInstruction
 When user asks for a joke, use the get_joke tool and translate the result to Russian.
 When user asks to save a joke, use the save_joke tool with the TRANSLATED Russian version. Extract from the most recent get_joke tool result: joke_api_id (from "id" field), category, type. For the joke text, use your translated Russian version - either joke_text (for type="single") or setup and delivery (for type="twopart").
-When user asks for saved/favorite jokes, use the get_saved_jokes tool. Present the jokes in a nice format."""
+When user asks for saved/favorite jokes, use the get_saved_jokes tool. Present the jokes in a nice format.
+When user asks to run tests or check the server, use ONLY the run_tests tool. IMPORTANT:
+- Do NOT call any other tools (like get_joke) after run_tests
+- Keep your response EXTREMELY SHORT using this EXACT format:
+🧪 run_tests:
+[passed] - passed
+[failed] - failed
+Tests count: [tests_run]
+Executing time: [execution_time]
+
+- Use ONLY numbers, no extra text
+- Do NOT add explanations, jokes, or additional content"""
     }
 
     private fun parseJokeFromMcpResult(mcpResult: String): String =
@@ -508,7 +600,7 @@ When user asks for saved/favorite jokes, use the get_saved_jokes tool. Present t
 
             val tools =
                 if (useJokeTools) {
-                    listOf(buildAgenticJokeTool(), buildSaveJokeTool(), buildGetSavedJokesTool())
+                    listOf(buildAgenticJokeTool(), buildSaveJokeTool(), buildGetSavedJokesTool(), buildRunTestsTool())
                 } else {
                     null
                 }
@@ -655,7 +747,8 @@ When user asks for saved/favorite jokes, use the get_saved_jokes tool. Present t
         val isSummary: Boolean = false,
         val isCompressionNotice: Boolean = false,
         val isCompressed: Boolean = false,
-        val mcpToolInfo: List<McpToolInfo>? = null
+        val mcpToolInfo: List<McpToolInfo>? = null,
+        val attachedLogFile: String? = null  // File path to log file
     )
 
     data class McpToolInfo(
@@ -688,12 +781,36 @@ When user asks for saved/favorite jokes, use the get_saved_jokes tool. Present t
 
             val finalMessages = _messages.value.toMutableList()
             if (messageIndex < finalMessages.size) {
+                // Extract server logs if this was a run_tests call and save to file
+                val logFilePath = mcpToolInfo?.firstOrNull { it.toolName == "run_tests" }?.let { toolInfo ->
+                    try {
+                        val responseJson = Json.parseToJsonElement(toolInfo.responseBody) as? JsonObject
+                        val serverLogsValue = responseJson?.get("server_logs") as? JsonPrimitive
+                        val outputValue = responseJson?.get("output") as? JsonPrimitive
+                        val logsContent = buildString {
+                            serverLogsValue?.content?.let { appendLine(it) }
+                            outputValue?.content?.let {
+                                appendLine("\n--- Test Output ---")
+                                appendLine(it)
+                            }
+                        }
+
+                        if (logsContent.isNotBlank()) {
+                            saveLogsToFile(logsContent)
+                        } else null
+                    } catch (e: Exception) {
+                        logE("Failed to extract and save server logs", e)
+                        null
+                    }
+                }
+
                 val assistantMessage =
                     finalMessages[messageIndex].copy(
                         text = fullText,
                         promptTokens = promptTokens,
                         completionTokens = completionTokens,
-                        mcpToolInfo = mcpToolInfo
+                        mcpToolInfo = mcpToolInfo,
+                        attachedLogFile = logFilePath
                     )
                 finalMessages[messageIndex] = assistantMessage
                 _messages.value = finalMessages
@@ -863,6 +980,7 @@ $conversationText
                 "(модель: $AGENTIC_MODEL).\n\n🗜️ Включено" +
                 " автоматическое сжатие диалога каждые $COMPRESSION_THRESHOLD ваших сообщений для" +
                 " оптимизации токенов!\n\n🎭 Включите JokeAPI MCP-сервер:\n" +
+                "• 'протестируй сервер' или 'запусти тесты' — проверить состояние сервера\n" +
                 "• 'шутка' или 'анекдот' — получить шутку\n" +
                 "• 'сохрани шутку' — сохранить в избранное\n" +
                 "• 'мои шутки' — показать сохранённые\n\nЧем могу помочь?"
