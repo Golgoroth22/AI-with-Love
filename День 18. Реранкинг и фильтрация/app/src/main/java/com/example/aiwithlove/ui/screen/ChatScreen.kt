@@ -1,5 +1,6 @@
 package com.example.aiwithlove.ui.screen
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -12,9 +13,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,9 +30,12 @@ import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -174,6 +181,13 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                         .background(MaterialTheme.colorScheme.surface)
                         .imePadding()
             ) {
+                // Threshold control panel
+                val threshold by viewModel.searchThreshold.collectAsState()
+                ThresholdControlPanel(
+                    threshold = threshold,
+                    onThresholdChange = { viewModel.updateSearchThreshold(it) }
+                )
+
                 Row(
                     modifier =
                         Modifier
@@ -383,28 +397,23 @@ fun MessageBubble(message: Message) {
             if (!message.isFromUser && message.mcpToolInfo != null && message.mcpToolInfo.isNotEmpty()) {
                 Column(
                     modifier = Modifier.padding(top = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     message.mcpToolInfo.forEach { toolInfo ->
-                        Row(
-                            modifier =
-                                Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "🔧",
-                                fontSize = 14.sp
-                            )
-                            Text(
-                                text = "Tool: ${toolInfo.toolName}",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                        when (toolInfo.toolName) {
+                            "semantic_search" -> {
+                                // Show detailed semantic search results
+                                toolInfo.semanticSearchResult?.let { result ->
+                                    SemanticSearchResultCard(result = result)
+                                } ?: run {
+                                    // Fallback to simple badge if parsing failed
+                                    SimpleToolBadge(toolName = toolInfo.toolName)
+                                }
+                            }
+                            else -> {
+                                // Other tools: show simple badge
+                                SimpleToolBadge(toolName = toolInfo.toolName)
+                            }
                         }
                     }
                 }
@@ -503,6 +512,553 @@ fun MessageBubble(message: Message) {
                 }
             }
         }
+    }
+}
+
+/**
+ * Simple tool badge for non-semantic-search tools
+ */
+@Composable
+private fun SimpleToolBadge(toolName: String) {
+    Row(
+        modifier =
+            Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = "🔧", fontSize = 14.sp)
+        Text(
+            text = "Tool: $toolName",
+            color = MaterialTheme.colorScheme.primary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+/**
+ * Card displaying semantic search results with similarity scores
+ */
+@Composable
+private fun SemanticSearchResultCard(
+    result: com.example.aiwithlove.data.model.SemanticSearchResult,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.material3.Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            // Header with threshold info
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("🌐", fontSize = 12.sp)
+                    Text(
+                        text = "Search Results",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
+                }
+
+                if (result.threshold != null) {
+                    Text(
+                        text = "${(result.threshold * 100).toInt()}%",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier =
+                            Modifier
+                                .background(
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                    RoundedCornerShape(3.dp)
+                                )
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                    )
+                }
+            }
+
+            // Comparison mode or single result
+            if (result.unfiltered != null && result.filteredResults != null) {
+                ComparisonView(
+                    unfiltered = result.unfiltered,
+                    filtered = result.filteredResults,
+                    threshold = result.threshold ?: 0.7
+                )
+            } else {
+                // Single result view
+                result.documents?.let { docs ->
+                    if (docs.isEmpty()) {
+                        Text(
+                            text = "No relevant documents found",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        )
+                    } else {
+                        DocumentList(documents = docs)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * List of document items
+ */
+@Composable
+private fun DocumentList(
+    documents: List<com.example.aiwithlove.data.model.SemanticSearchDocument>,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        documents.forEachIndexed { index, doc ->
+            DocumentItem(
+                document = doc,
+                index = index + 1
+            )
+        }
+    }
+}
+
+/**
+ * Single document item with similarity score
+ */
+@Composable
+private fun DocumentItem(
+    document: com.example.aiwithlove.data.model.SemanticSearchDocument,
+    index: Int
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .border(
+                    0.5.dp,
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                    RoundedCornerShape(6.dp)
+                )
+                .padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        // Header: index + similarity score
+        Row(
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = "#$index",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            SimilarityScoreBar(similarity = document.similarity)
+        }
+
+        // Document content (truncated to 100 chars)
+        Text(
+            text = document.content.take(100) + if (document.content.length > 100) "..." else "",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            lineHeight = 14.sp
+        )
+    }
+}
+
+/**
+ * Visual similarity score bar with percentage
+ */
+@Composable
+private fun SimilarityScoreBar(similarity: Double) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Percentage text
+        Text(
+            text = "${(similarity * 100).toInt()}%",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            color =
+                when {
+                    similarity >= 0.8 -> androidx.compose.ui.graphics.Color(0xFF4CAF50) // Green
+                    similarity >= 0.6 -> androidx.compose.ui.graphics.Color(0xFFFF9800) // Orange
+                    else -> androidx.compose.ui.graphics.Color(0xFFF44336) // Red
+                }
+        )
+
+        // Progress bar
+        Box(
+            modifier =
+                Modifier
+                    .size(width = 40.dp, height = 4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .fillMaxWidth(similarity.toFloat())
+                        .background(
+                            when {
+                                similarity >= 0.8 -> androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                                similarity >= 0.6 -> androidx.compose.ui.graphics.Color(0xFFFF9800)
+                                else -> androidx.compose.ui.graphics.Color(0xFFF44336)
+                            }
+                        )
+            )
+        }
+    }
+}
+
+/**
+ * Comparison view showing unfiltered vs filtered results side-by-side
+ */
+@Composable
+private fun ComparisonView(
+    unfiltered: com.example.aiwithlove.data.model.DocumentSet,
+    filtered: com.example.aiwithlove.data.model.DocumentSet,
+    threshold: Double
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        // Summary stats
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(
+                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
+                        RoundedCornerShape(4.dp)
+                    )
+                    .padding(4.dp),
+            horizontalArrangement = Arrangement.SpaceAround
+        ) {
+            StatItem(
+                label = "Unfiltered",
+                value = unfiltered.count.toString(),
+                color = MaterialTheme.colorScheme.secondary
+            )
+
+            androidx.compose.material3.HorizontalDivider(
+                modifier =
+                    Modifier
+                        .size(width = 1.dp, height = 30.dp),
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+            )
+
+            StatItem(
+                label = "Filtered",
+                value = filtered.count.toString(),
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            androidx.compose.material3.HorizontalDivider(
+                modifier =
+                    Modifier
+                        .size(width = 1.dp, height = 30.dp),
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+            )
+
+            StatItem(
+                label = "Removed",
+                value = (unfiltered.count - filtered.count).toString(),
+                color = androidx.compose.ui.graphics.Color(0xFFF44336)
+            )
+        }
+
+        // Side-by-side comparison
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // Unfiltered column
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = "Unfiltered",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+                CompactDocumentList(unfiltered.documents, threshold)
+            }
+
+            // Filtered column
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = "Filtered",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                CompactDocumentList(filtered.documents, threshold)
+            }
+        }
+    }
+}
+
+/**
+ * Statistic item for comparison summary
+ */
+@Composable
+private fun StatItem(label: String, value: String, color: androidx.compose.ui.graphics.Color) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(1.dp)
+    ) {
+        Text(
+            text = value,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
+        Text(
+            text = label,
+            fontSize = 9.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/**
+ * Compact document list for comparison view
+ */
+@Composable
+private fun CompactDocumentList(
+    documents: List<com.example.aiwithlove.data.model.SemanticSearchDocument>,
+    threshold: Double
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        documents.take(3).forEachIndexed { index, doc ->
+            CompactDocumentItem(
+                document = doc,
+                index = index + 1,
+                isBelowThreshold = doc.similarity < threshold
+            )
+        }
+
+        if (documents.size > 3) {
+            Text(
+                text = "+${documents.size - 3} more...",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                modifier = Modifier.padding(start = 6.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Compact document item for comparison view
+ */
+@Composable
+private fun CompactDocumentItem(
+    document: com.example.aiwithlove.data.model.SemanticSearchDocument,
+    index: Int,
+    isBelowThreshold: Boolean
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(3.dp))
+                .background(
+                    if (isBelowThreshold)
+                        androidx.compose.ui.graphics.Color(0xFFF44336).copy(alpha = 0.1f)
+                    else
+                        MaterialTheme.colorScheme.surface
+                )
+                .border(
+                    0.5.dp,
+                    if (isBelowThreshold)
+                        androidx.compose.ui.graphics.Color(0xFFF44336).copy(alpha = 0.3f)
+                    else
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                    RoundedCornerShape(3.dp)
+                )
+                .padding(4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "#$index: ${document.content.take(25)}...",
+            fontSize = 9.sp,
+            color =
+                if (isBelowThreshold)
+                    androidx.compose.ui.graphics.Color(0xFFF44336)
+                else
+                    MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f)
+        )
+
+        Text(
+            text = "${(document.similarity * 100).toInt()}%",
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            color =
+                if (isBelowThreshold)
+                    androidx.compose.ui.graphics.Color(0xFFF44336)
+                else
+                    androidx.compose.ui.graphics.Color(0xFF4CAF50)
+        )
+    }
+}
+
+/**
+ * Expandable threshold control panel with slider
+ */
+@Composable
+private fun ThresholdControlPanel(
+    threshold: Float,
+    onThresholdChange: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        // Header with expand/collapse
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "🎚️",
+                    fontSize = 16.sp
+                )
+                Text(
+                    text = "Search Threshold",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${(threshold * 100).toInt()}%",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = if (expanded) "▲" else "▼",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // Expandable slider section
+        androidx.compose.animation.AnimatedVisibility(visible = expanded) {
+            Column(
+                modifier = Modifier.padding(top = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Slider
+                androidx.compose.material3.Slider(
+                    value = threshold,
+                    onValueChange = onThresholdChange,
+                    valueRange = 0.3f..0.95f,
+                    steps = 12, // 0.05 increments
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Visual guide
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    ThresholdLabel("30%", "More results", androidx.compose.ui.graphics.Color(0xFFF44336))
+                    ThresholdLabel("70%", "Balanced", androidx.compose.ui.graphics.Color(0xFFFF9800))
+                    ThresholdLabel("95%", "High quality", androidx.compose.ui.graphics.Color(0xFF4CAF50))
+                }
+
+                // Description
+                Text(
+                    text =
+                        when {
+                            threshold >= 0.8f -> "High precision: Only very relevant documents"
+                            threshold >= 0.6f -> "Balanced: Good mix of relevance and coverage"
+                            else -> "High recall: More results, some may be less relevant"
+                        },
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontStyle = FontStyle.Italic,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Label for threshold guide
+ */
+@Composable
+private fun ThresholdLabel(value: String, label: String, color: androidx.compose.ui.graphics.Color) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = value,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

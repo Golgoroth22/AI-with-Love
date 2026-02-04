@@ -7,6 +7,7 @@ import com.example.aiwithlove.data.AgenticTool
 import com.example.aiwithlove.data.PerplexityApiService
 import com.example.aiwithlove.data.model.McpToolInfo
 import com.example.aiwithlove.data.model.Message
+import com.example.aiwithlove.data.model.SemanticSearchResult
 import com.example.aiwithlove.database.ChatRepository
 import com.example.aiwithlove.mcp.McpClient
 import com.example.aiwithlove.mcp.McpServerConfig
@@ -53,6 +54,9 @@ class ChatViewModel(
     private val _showMcpDialog = MutableStateFlow(false)
     val showMcpDialog: StateFlow<Boolean> = _showMcpDialog.asStateFlow()
 
+    private val _searchThreshold = MutableStateFlow(0.7f)
+    val searchThreshold: StateFlow<Float> = _searchThreshold.asStateFlow()
+
     private var userMessagesCountSinceAppLaunch = 0
     private var lastJokeResult: String? = null
 
@@ -73,6 +77,11 @@ class ChatViewModel(
                     server
                 }
             }
+    }
+
+    fun updateSearchThreshold(threshold: Float) {
+        _searchThreshold.value = threshold.coerceIn(0.3f, 0.95f)
+        logD("🎚️ Search threshold updated to ${_searchThreshold.value}")
     }
 
     private fun isJokeServerEnabled(): Boolean = _mcpServers.value.any { it.id == "jokes" && it.isEnabled }
@@ -431,14 +440,35 @@ class ChatViewModel(
 
             "semantic_search" -> {
                 runAndCatch {
-                    val args = parseToolArguments(arguments)
+                    // Get current threshold from UI state
+                    val currentThreshold = _searchThreshold.value
+
+                    val args = parseToolArguments(arguments).toMutableMap()
+                    // Override threshold with current UI value
+                    args["threshold"] = currentThreshold.toDouble()
+                    // Always enable comparison mode per user preference
+                    args["compare_mode"] = true
+
                     val requestBody = arguments ?: "{}"
-                    logD("🌐 Calling MCP server semantic_search")
+                    logD("🌐 Calling MCP server semantic_search with threshold=$currentThreshold, compare_mode=true")
 
                     val mcpResult = mcpClient.callTool("semantic_search", args)
                     logD("🌐 MCP result: $mcpResult")
 
                     val parsedResult = parseJokeFromMcpResult(mcpResult)
+                    val semanticResult = parseSemanticSearchResult(mcpResult)
+
+                    // Log parsed results for debugging
+                    if (semanticResult != null) {
+                        val docCount = semanticResult.count
+                            ?: semanticResult.filteredResults?.count
+                            ?: semanticResult.unfiltered?.count
+                            ?: 0
+                        val threshold = semanticResult.threshold ?: "N/A"
+                        logD("🌐 Parsed $docCount documents with threshold $threshold")
+                    } else {
+                        logD("🌐 Could not parse semantic search result")
+                    }
 
                     ToolExecutionResult(
                         result = parsedResult,
@@ -446,7 +476,8 @@ class ChatViewModel(
                             McpToolInfo(
                                 toolName = "semantic_search",
                                 requestBody = requestBody,
-                                responseBody = parsedResult
+                                responseBody = parsedResult,
+                                semanticSearchResult = semanticResult
                             )
                     )
                 }.getOrElse { error ->
@@ -598,6 +629,26 @@ If no relevant documents are found, answer based on your general knowledge and m
                 mcpResult
             }
         }.getOrElse { mcpResult }
+
+    /**
+     * Parse semantic search result from MCP response
+     * Extracts and deserializes SemanticSearchResult from nested JSON structure
+     */
+    private fun parseSemanticSearchResult(mcpResult: String): SemanticSearchResult? =
+        runAndCatch {
+            val jokeData = Json.parseToJsonElement(mcpResult)
+
+            if (jokeData is JsonObject) {
+                val content = jokeData["content"] as? JsonArray
+                val textContent = content?.firstOrNull() as? JsonObject
+                val textString = (textContent?.get("text") as? JsonPrimitive)?.content
+
+                if (textString != null) {
+                    // Parse the nested JSON string into SemanticSearchResult
+                    Json.decodeFromString<SemanticSearchResult>(textString)
+                } else null
+            } else null
+        }.getOrNull()
 
     private fun loadChatHistory() {
         viewModelScope.launch(Dispatchers.IO) {

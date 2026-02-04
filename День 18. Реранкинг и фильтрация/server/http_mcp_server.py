@@ -26,6 +26,13 @@ REMOTE_MCP_SERVER = {
     'url': 'http://148.253.209.151:8080'
 }
 
+# Semantic search configuration
+SEMANTIC_SEARCH_CONFIG = {
+    'default_threshold': 0.7,  # Default similarity threshold (70%)
+    'min_threshold': 0.3,      # Minimum allowed threshold (30%)
+    'max_threshold': 0.95      # Maximum allowed threshold (95%)
+}
+
 def init_database():
     """Initialize SQLite database"""
     conn = sqlite3.connect(DB_PATH)
@@ -276,6 +283,16 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                             'type': 'integer',
                             'description': 'Maximum number of relevant chunks to return (default: 3)',
                             'default': 3
+                        },
+                        'threshold': {
+                            'type': 'number',
+                            'description': 'Minimum similarity score (0.0-1.0). Only return documents with similarity >= threshold (default: 0.7)',
+                            'default': 0.7
+                        },
+                        'compare_mode': {
+                            'type': 'boolean',
+                            'description': 'If true, return both unfiltered and filtered results for comparison (default: false)',
+                            'default': False
                         }
                     },
                     'required': ['query']
@@ -918,9 +935,11 @@ class MCPServerHandler(BaseHTTPRequestHandler):
             }
 
     def tool_semantic_search(self, args):
-        """Search for relevant chunks from remote MCP server"""
+        """Search for relevant chunks from remote MCP server with threshold filtering"""
         query = args.get('query', '')
         limit = args.get('limit', 3)
+        threshold = args.get('threshold', SEMANTIC_SEARCH_CONFIG['default_threshold'])
+        compare_mode = args.get('compare_mode', False)
 
         if not query:
             return {
@@ -928,10 +947,17 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 'error': 'Query is required'
             }
 
-        self.log(f"🌐 Semantic search on remote server: {query[:50]}...")
+        # Validate and clamp threshold
+        threshold = max(SEMANTIC_SEARCH_CONFIG['min_threshold'],
+                       min(SEMANTIC_SEARCH_CONFIG['max_threshold'], threshold))
+
+        self.log(f"🌐 Semantic search on remote server: {query[:50]}... (threshold={threshold:.2f}, compare_mode={compare_mode})")
 
         try:
-            # Prepare JSON-RPC request for remote MCP server
+            # STAGE 1: Get raw results from remote server
+            # Request limit * 2 documents to have buffer for filtering
+            request_limit = limit * 2
+
             request_data = {
                 'jsonrpc': '2.0',
                 'id': 1,
@@ -940,13 +966,13 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                     'name': 'search_similar',
                     'arguments': {
                         'query': query,
-                        'limit': limit
+                        'limit': request_limit
                     }
                 }
             }
 
             # Call remote MCP server
-            self.log(f"📡 Calling remote MCP server at {REMOTE_MCP_SERVER['url']}")
+            self.log(f"📡 Calling remote MCP server at {REMOTE_MCP_SERVER['url']} (requesting {request_limit} docs)")
 
             req = urllib.request.Request(
                 REMOTE_MCP_SERVER['url'],
@@ -981,6 +1007,8 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                     'success': True,
                     'count': 0,
                     'documents': [],
+                    'threshold': threshold,
+                    'filtered': True,
                     'message': 'No documents found on remote server'
                 }
 
@@ -990,14 +1018,43 @@ class MCPServerHandler(BaseHTTPRequestHandler):
 
             documents = search_result.get('documents', [])
 
-            self.log(f"🔍 Found {len(documents)} relevant chunks from remote server")
+            self.log(f"🔍 Received {len(documents)} documents from remote server")
 
-            return {
-                'success': True,
-                'count': len(documents),
-                'documents': documents,
-                'source': 'remote_mcp_server'
-            }
+            # STAGE 2: Apply threshold filtering
+            filtered_documents = [
+                doc for doc in documents
+                if doc.get('similarity', 0) >= threshold
+            ][:limit]  # Re-apply limit after filtering
+
+            self.log(f"✅ After threshold filtering: {len(filtered_documents)} documents pass (threshold={threshold:.2f})")
+
+            # STAGE 3: Return based on mode
+            if compare_mode:
+                # Return both unfiltered and filtered for comparison
+                unfiltered_docs = documents[:limit]
+                return {
+                    'success': True,
+                    'threshold': threshold,
+                    'unfiltered': {
+                        'count': len(unfiltered_docs),
+                        'documents': unfiltered_docs
+                    },
+                    'filteredResults': {
+                        'count': len(filtered_documents),
+                        'documents': filtered_documents
+                    },
+                    'source': 'remote_mcp_server'
+                }
+            else:
+                # Return filtered results only
+                return {
+                    'success': True,
+                    'count': len(filtered_documents),
+                    'documents': filtered_documents,
+                    'threshold': threshold,
+                    'isFiltered': True,
+                    'source': 'remote_mcp_server'
+                }
 
         except urllib.error.URLError as e:
             self.log(f"❌ Network error connecting to remote server: {str(e)}")
