@@ -54,7 +54,7 @@ class ChatViewModel(
     private val _showMcpDialog = MutableStateFlow(false)
     val showMcpDialog: StateFlow<Boolean> = _showMcpDialog.asStateFlow()
 
-    private val _searchThreshold = MutableStateFlow(0.7f)
+    private val _searchThreshold = MutableStateFlow(0.6f)  // Lowered for better results
     val searchThreshold: StateFlow<Float> = _searchThreshold.asStateFlow()
 
     private var userMessagesCountSinceAppLaunch = 0
@@ -169,7 +169,7 @@ class ChatViewModel(
         return AgenticTool(
             type = "function",
             name = "get_joke",
-            description = "Fetches a random joke from JokeAPI. Call this tool to get a joke, then translate it to Russian for the user.",
+            description = "Fetches a random joke from JokeAPI. Use this when user asks for a joke.",
             parameters = parameters
         )
     }
@@ -278,7 +278,7 @@ class ChatViewModel(
         return AgenticTool(
             type = "function",
             name = "semantic_search",
-            description = "Search for relevant document chunks from indexed documents using semantic similarity. Use this to find context when user asks questions about specific topics, concepts, or requests information from documents.",
+            description = "Search for relevant document chunks with SOURCE CITATIONS from indexed documents using semantic similarity. Returns documents with 'citation' field containing [filename, page, chunk]. ALWAYS include these citations in your response to the user when presenting information.",
             parameters = parameters
         )
     }
@@ -602,10 +602,37 @@ Executing time: [execution_time]
 
         if (useSemanticSearch) {
             instructions.add("""
-When user asks a question or requests information about a topic, FIRST use the semantic_search tool to find relevant document chunks.
-After receiving document chunks, use them as context to answer the user's question accurately.
-Include the information from the retrieved documents in your answer.
-If no relevant documents are found, answer based on your general knowledge and mention that no specific documents were found.""".trimIndent())
+When user asks a question, FIRST use the semantic_search tool to find relevant documents.
+
+CRITICAL - Understanding the JSON Response:
+The tool returns a JSON with these fields:
+- "filteredResults": { "count": N, "documents": [...] } - Documents that passed the threshold
+- "unfiltered": { "count": N, "documents": [...] } - ALL documents found, regardless of threshold
+
+How to Handle Results:
+1. Check filteredResults.count first
+2. If filteredResults.count > 0: Use those documents (they're high quality)
+3. If filteredResults.count = 0 BUT unfiltered.count > 0:
+   - Use the TOP 3 documents from unfiltered.documents
+   - Check their "similarity" scores (will be around 0.4-0.6)
+   - State clearly that relevance is lower than ideal
+   - Still provide helpful answer with citations from these documents
+4. ONLY say "Релевантных документов не найдено" if BOTH filteredResults.count = 0 AND unfiltered.count = 0
+
+Citation Requirements:
+- Each document has a "citation" field - use it exactly as provided
+- Include inline citations for EVERY fact: [filename, page, chunk]
+- After your answer, add "Источники:" section listing all unique sources
+- Every statement must reference a source
+
+Example with low-similarity results:
+"Хотя найденные документы имеют низкую релевантность (similarity 0.48-0.62), вот информация из базы:
+Bakemono Archers — юнит Horde [unknown, фрагмент 3]. ...
+
+Источники (низкая релевантность):
+- unknown (фрагмент 3)"
+
+DO NOT ignore unfiltered documents when filteredResults is empty. Always check BOTH fields.""".trimIndent())
         }
 
         return instructions.joinToString("\n\n")
@@ -777,6 +804,7 @@ If no relevant documents are found, answer based on your general knowledge and m
                 logD("🔧 Tool calls detected in Agentic response, iteration $iterations")
 
                 val toolResults = mutableListOf<String>()
+                var containsJokeTool = false
                 response.output?.filter { it.type == "function_call" }?.forEach { toolCall ->
                     val toolName = toolCall.name ?: return@forEach
                     val arguments = toolCall.arguments
@@ -788,14 +816,21 @@ If no relevant documents are found, answer based on your general knowledge and m
                         capturedMcpToolInfoList.add(executionResult.mcpToolInfo)
                         if (toolName == "get_joke") {
                             lastJokeResult = executionResult.result
+                            containsJokeTool = true
                         }
                     }
+                }
+
+                val instruction = if (containsJokeTool) {
+                    "Please use these results to complete your response. Translate the joke to Russian."
+                } else {
+                    "Please use these results to complete your response."
                 }
 
                 currentInput =
                     "$currentInput\n\nTool results:\n${toolResults.joinToString(
                         "\n"
-                    )}\n\nPlease use these results to complete your response. Translate the joke to Russian."
+                    )}\n\n$instruction"
 
                 response =
                     perplexityService.sendAgenticRequest(

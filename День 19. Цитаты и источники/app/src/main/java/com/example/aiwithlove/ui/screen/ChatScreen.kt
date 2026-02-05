@@ -296,7 +296,7 @@ fun MessageBubble(message: Message) {
         Column(
             modifier =
                 Modifier
-                    .widthIn(max = 280.dp)
+                    .fillMaxWidth(0.7f)
                     .clip(
                         RoundedCornerShape(
                             topStart = 16.dp,
@@ -312,7 +312,7 @@ fun MessageBubble(message: Message) {
                             MaterialTheme.colorScheme.surfaceVariant
                         },
                     )
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
             Text(
                 text = message.text,
@@ -322,8 +322,8 @@ fun MessageBubble(message: Message) {
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                fontSize = 16.sp,
-                lineHeight = 20.sp
+                fontSize = 20.sp,
+                lineHeight = 26.sp
             )
 
             // Show attached log file if present

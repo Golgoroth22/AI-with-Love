@@ -24,14 +24,37 @@ data class McpToolInfo(
 )
 
 /**
+ * Citation information for a document chunk
+ */
+@Serializable
+data class CitationInfo(
+    val source_file: String,
+    val source_type: String,
+    val chunk_index: Int,
+    val page_number: Int? = null,
+    val total_chunks: Int,
+    val formatted: String
+)
+
+/**
  * Represents a single document chunk returned from semantic search
+ * Now includes citation fields (Day 19)
  */
 @Serializable
 data class SemanticSearchDocument(
     val id: Int,
     val content: String,
     val similarity: Double,
-    val created_at: String? = null
+    val created_at: String? = null,
+    // Citation fields (Day 19)
+    val source_file: String? = null,
+    val source_type: String? = null,
+    val chunk_index: Int? = null,
+    val page_number: Int? = null,
+    val total_chunks: Int? = null,
+    val metadata: String? = null,
+    val citation: String? = null,
+    val citation_info: CitationInfo? = null
 )
 
 /**
@@ -48,6 +71,7 @@ data class SemanticSearchResult(
     val unfiltered: DocumentSet? = null,
     val filteredResults: DocumentSet? = null,
     val source: String? = null,
+    val sources_summary: List<String>? = null,  // Day 19: Citation summary
     val error: String? = null,
     val message: String? = null
 )

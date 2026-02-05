@@ -4,6 +4,53 @@
 
 Added a new `semantic_search` tool that retrieves relevant document chunks from a remote MCP server using vector similarity search. This enables RAG (Retrieval Augmented Generation) by finding context from indexed documents to help answer user questions.
 
+## 🎯 Citation Feature (Day 19)
+
+**NEW:** The semantic_search tool now ALWAYS returns citations and source references for every document chunk, reducing AI hallucinations by grounding responses in verifiable sources.
+
+### Key Features:
+- **Automatic Citations**: Every document includes `citation` and `citation_info` fields
+- **Source Tracking**: Documents tracked by `source_file`, `page_number`, `chunk_index`
+- **Citation Format**: Standard format - `[filename.pdf, стр. 12, фрагмент 5/45]`
+- **Sources Summary**: Generated list of all unique sources with counts
+- **Graceful Degradation**: Legacy documents show `[unknown source]`
+- **AI Requirements**: AI MUST include inline citations and "Источники:" section in responses
+
+### Updated Response Format:
+```json
+{
+  "success": true,
+  "count": 2,
+  "documents": [
+    {
+      "id": 123,
+      "content": "OAuth 2.0 authentication requires...",
+      "similarity": 0.89,
+      "created_at": "2026-02-04 03:41:55",
+      "citation": "[api_guide.pdf, стр. 15, фрагмент 13/45]",
+      "citation_info": {
+        "source_file": "api_guide.pdf",
+        "source_type": "pdf",
+        "chunk_index": 12,
+        "page_number": 15,
+        "total_chunks": 45,
+        "formatted": "[api_guide.pdf, стр. 15, фрагмент 13/45]"
+      }
+    }
+  ],
+  "sources_summary": ["api_guide.pdf (2 фрагмента)"]
+}
+```
+
+### AI Response Example:
+```
+API использует OAuth 2.0 для аутентификации [api_guide.pdf, стр. 5, фрагмент 2/10].
+Токены действительны 3600 секунд [api_guide.pdf, стр. 6, фрагмент 3/10].
+
+Источники:
+- api_guide.pdf (страница 5-6, фрагменты 2-3)
+```
+
 **Two Critical Bugs Fixed**:
 1. **Keyword Detection Bug**: Semantic search keywords were incorrectly placed in the joke detection function, preventing the tool from being triggered. Fixed by separating keyword detection into distinct functions.
 2. **Connection Architecture Bug**: Android app was connecting directly to the remote server (148.253.209.151:8080) which doesn't have the `semantic_search` tool. Fixed by configuring the app to connect to the local MCP server (10.0.2.2:8080) which proxies to the remote server.
@@ -234,7 +281,7 @@ curl -X POST http://localhost:8080 \
   }'
 ```
 
-**Expected Response**:
+**Expected Response (with Citations)**:
 ```json
 {
   "jsonrpc": "2.0",
@@ -250,10 +297,20 @@ curl -X POST http://localhost:8080 \
             \"id\": 1,
             \"content\": \"...\",
             \"similarity\": 0.85,
-            \"created_at\": \"2025-01-31 22:00:00\"
+            \"created_at\": \"2025-01-31 22:00:00\",
+            \"citation\": \"[api_guide.pdf, стр. 5, фрагмент 2/10]\",
+            \"citation_info\": {
+              \"source_file\": \"api_guide.pdf\",
+              \"source_type\": \"pdf\",
+              \"chunk_index\": 1,
+              \"page_number\": 5,
+              \"total_chunks\": 10,
+              \"formatted\": \"[api_guide.pdf, стр. 5, фрагмент 2/10]\"
+            }
           }
         ],
-        \"source\": \"remote_mcp_server\"
+        \"source\": \"remote_mcp_server\",
+        \"sources_summary\": [\"api_guide.pdf (3 фрагмента)\"]
       }"
     }]
   }

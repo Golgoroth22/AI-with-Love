@@ -40,7 +40,7 @@ The `search_similar` tool searches for documents similar to a query using cosine
 
 ## Returns
 
-### Success Response
+### Success Response (with Citations - Day 19)
 ```json
 {
   "success": true,
@@ -50,24 +50,50 @@ The `search_similar` tool searches for documents similar to a query using cosine
       "id": 42,
       "content": "REST API это архитектурный стиль для веб-сервисов...",
       "similarity": 0.89,
-      "created_at": "2026-02-04 15:30:00"
+      "created_at": "2026-02-04 15:30:00",
+      "source_file": "api_guide.pdf",
+      "source_type": "pdf",
+      "chunk_index": 5,
+      "page_number": 12,
+      "total_chunks": 45,
+      "metadata": "{\"author\": \"John Doe\", \"title\": \"API Guide v2.0\"}"
     },
     {
       "id": 15,
       "content": "HTTP методы используются в REST API для операций CRUD...",
       "similarity": 0.76,
-      "created_at": "2026-02-03 10:15:00"
+      "created_at": "2026-02-03 10:15:00",
+      "source_file": "http_methods.txt",
+      "source_type": "txt",
+      "chunk_index": 2,
+      "page_number": null,
+      "total_chunks": 8,
+      "metadata": "{}"
     },
     {
       "id": 8,
       "content": "Веб-сервисы могут использовать различные архитектурные стили...",
       "similarity": 0.65,
-      "created_at": "2026-02-02 14:20:00"
+      "created_at": "2026-02-02 14:20:00",
+      "source_file": "unknown",
+      "source_type": "manual",
+      "chunk_index": 0,
+      "page_number": null,
+      "total_chunks": 1,
+      "metadata": "{}"
     }
   ],
   "source": "remote_mcp_server"
 }
 ```
+
+**New Citation Fields (Day 19)**:
+- `source_file`: Original filename or "unknown" for legacy documents
+- `source_type`: File type ("pdf", "txt", "manual")
+- `chunk_index`: Position of chunk in document (0-based)
+- `page_number`: PDF page number (null for non-PDF)
+- `total_chunks`: Total chunks from this source file
+- `metadata`: JSON string with additional metadata
 
 ### Empty Results
 ```json
@@ -315,6 +341,8 @@ See: [SEMANTIC_SEARCH.md](../SEMANTIC_SEARCH.md)
 
 ## Version
 
+**Day 19**: Цитаты и источники - Added citation fields to all documents
+
 **Day 18**: Реранкинг и фильтрация
 
-**Last Updated**: 2026-02-04
+**Last Updated**: 2026-02-05

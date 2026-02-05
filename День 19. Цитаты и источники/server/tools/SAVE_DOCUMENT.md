@@ -29,6 +29,48 @@ The `save_document` tool saves a document with its embedding to a remote SQLite 
 - **Max Length**: 8192 tokens (~32000 characters)
 - **Example**: `"REST API это архитектурный стиль для веб-сервисов, использующий HTTP методы"`
 
+### `source_file` (optional - Day 19)
+- **Type**: String
+- **Required**: No
+- **Default**: "manual_entry"
+- **Description**: Original filename (e.g., "api_guide.pdf")
+- **Example**: `"api_documentation.pdf"`
+
+### `source_type` (optional - Day 19)
+- **Type**: String
+- **Required**: No
+- **Default**: "manual"
+- **Description**: File type: "pdf", "txt", or "manual"
+- **Example**: `"pdf"`
+
+### `chunk_index` (optional - Day 19)
+- **Type**: Integer
+- **Required**: No
+- **Default**: 0
+- **Description**: Chunk position in document (0-based)
+- **Example**: `5`
+
+### `page_number` (optional - Day 19)
+- **Type**: Integer
+- **Required**: No
+- **Default**: null
+- **Description**: PDF page number (if applicable)
+- **Example**: `12`
+
+### `total_chunks` (optional - Day 19)
+- **Type**: Integer
+- **Required**: No
+- **Default**: 1
+- **Description**: Total number of chunks from this source
+- **Example**: `45`
+
+### `metadata` (optional - Day 19)
+- **Type**: String (JSON)
+- **Required**: No
+- **Default**: "{}"
+- **Description**: JSON metadata (author, title, date, etc.)
+- **Example**: `"{\"author\": \"John Doe\", \"title\": \"API Guide v2.0\"}"`
+
 ---
 
 ## Returns

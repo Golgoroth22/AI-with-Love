@@ -28,7 +28,7 @@ REMOTE_MCP_SERVER = {
 
 # Semantic search configuration
 SEMANTIC_SEARCH_CONFIG = {
-    'default_threshold': 0.7,  # Default similarity threshold (70%)
+    'default_threshold': 0.6,  # Default similarity threshold (60%) - Matches app default
     'min_threshold': 0.3,      # Minimum allowed threshold (30%)
     'max_threshold': 0.95      # Maximum allowed threshold (95%)
 }
@@ -64,6 +64,23 @@ def init_database():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # Add citation columns for source tracking (backward compatible)
+    try:
+        cursor.execute("ALTER TABLE documents ADD COLUMN source_file TEXT DEFAULT 'unknown'")
+        cursor.execute("ALTER TABLE documents ADD COLUMN source_type TEXT DEFAULT 'manual'")
+        cursor.execute("ALTER TABLE documents ADD COLUMN chunk_index INTEGER DEFAULT 0")
+        cursor.execute("ALTER TABLE documents ADD COLUMN page_number INTEGER")
+        cursor.execute("ALTER TABLE documents ADD COLUMN total_chunks INTEGER DEFAULT 1")
+        cursor.execute("ALTER TABLE documents ADD COLUMN metadata TEXT DEFAULT '{}'")
+        print("✅ Added citation columns to documents table")
+    except sqlite3.OperationalError:
+        # Columns already exist
+        pass
+
+    # Create index for better query performance
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_source ON documents(source_file, chunk_index)")
+
     conn.commit()
     conn.close()
     print(f"📦 Embeddings database initialized: {EMBEDDINGS_DB_PATH}")
@@ -238,13 +255,42 @@ class MCPServerHandler(BaseHTTPRequestHandler):
             },
             {
                 'name': 'save_document',
-                'description': 'Save a document with its embedding to the database. Automatically generates embedding if not provided.',
+                'description': 'Save a document with its embedding and source citation info to the database. Automatically generates embedding if not provided.',
                 'inputSchema': {
                     'type': 'object',
                     'properties': {
                         'content': {
                             'type': 'string',
                             'description': 'Document content to save'
+                        },
+                        'source_file': {
+                            'type': 'string',
+                            'description': 'Source filename (e.g., "api_guide.pdf")',
+                            'default': 'manual_entry'
+                        },
+                        'source_type': {
+                            'type': 'string',
+                            'description': 'File type: pdf, txt, or manual',
+                            'default': 'manual'
+                        },
+                        'chunk_index': {
+                            'type': 'integer',
+                            'description': 'Chunk position in document (0-based)',
+                            'default': 0
+                        },
+                        'page_number': {
+                            'type': 'integer',
+                            'description': 'Page number in PDF (optional)'
+                        },
+                        'total_chunks': {
+                            'type': 'integer',
+                            'description': 'Total number of chunks from this source',
+                            'default': 1
+                        },
+                        'metadata': {
+                            'type': 'string',
+                            'description': 'JSON metadata (author, title, date, etc.)',
+                            'default': '{}'
                         }
                     },
                     'required': ['content']
@@ -744,7 +790,7 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 headers={'Content-Type': 'application/json'}
             )
 
-            with urllib.request.urlopen(req, timeout=30) as response:
+            with urllib.request.urlopen(req, timeout=60) as response:
                 result = json.loads(response.read().decode('utf-8'))
 
             embedding = result.get('embedding', [])
@@ -807,7 +853,8 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 }
             )
 
-            with urllib.request.urlopen(req, timeout=30) as response:
+            # Increased timeout to 120s for operations that involve embedding generation
+            with urllib.request.urlopen(req, timeout=120) as response:
                 remote_response = json.loads(response.read().decode('utf-8'))
 
             self.log(f"✅ Received response from remote server")
@@ -887,7 +934,8 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 }
             )
 
-            with urllib.request.urlopen(req, timeout=30) as response:
+            # Increased timeout to 120s for operations that involve embedding generation
+            with urllib.request.urlopen(req, timeout=120) as response:
                 remote_response = json.loads(response.read().decode('utf-8'))
 
             self.log(f"✅ Received response from remote server")
@@ -983,7 +1031,8 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 }
             )
 
-            with urllib.request.urlopen(req, timeout=30) as response:
+            # Increased timeout to 120s for search operations that involve embedding generation
+            with urllib.request.urlopen(req, timeout=120) as response:
                 remote_response = json.loads(response.read().decode('utf-8'))
 
             self.log(f"✅ Received response from remote server")
@@ -1020,13 +1069,45 @@ class MCPServerHandler(BaseHTTPRequestHandler):
 
             self.log(f"🔍 Received {len(documents)} documents from remote server")
 
-            # STAGE 2: Apply threshold filtering
-            filtered_documents = [
-                doc for doc in documents
-                if doc.get('similarity', 0) >= threshold
-            ][:limit]  # Re-apply limit after filtering
+            # STAGE 2: Apply threshold filtering and add citations
+            filtered_documents = []
+            for doc in documents:
+                if doc.get('similarity', 0) >= threshold:
+                    # Add formatted citation
+                    doc['citation'] = self.format_citation(doc)
+
+                    # Add citation object for structured access
+                    doc['citation_info'] = {
+                        'source_file': doc.get('source_file', 'unknown'),
+                        'source_type': doc.get('source_type', 'manual'),
+                        'chunk_index': doc.get('chunk_index', 0),
+                        'page_number': doc.get('page_number'),
+                        'total_chunks': doc.get('total_chunks', 1),
+                        'formatted': doc['citation']
+                    }
+
+                    filtered_documents.append(doc)
+
+                    if len(filtered_documents) >= limit:
+                        break
 
             self.log(f"✅ After threshold filtering: {len(filtered_documents)} documents pass (threshold={threshold:.2f})")
+
+            # Generate sources summary
+            sources = {}
+            for doc in filtered_documents:
+                src = doc.get('source_file', 'unknown')
+                sources[src] = sources.get(src, 0) + 1
+
+            sources_summary = []
+            for src, count in sources.items():
+                if count == 1:
+                    word = 'фрагмент'
+                elif count < 5:
+                    word = 'фрагмента'
+                else:
+                    word = 'фрагментов'
+                sources_summary.append(f"{src} ({count} {word})")
 
             # STAGE 3: Return based on mode
             if compare_mode:
@@ -1043,7 +1124,8 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                         'count': len(filtered_documents),
                         'documents': filtered_documents
                     },
-                    'source': 'remote_mcp_server'
+                    'source': 'remote_mcp_server',
+                    'sources_summary': sources_summary
                 }
             else:
                 # Return filtered results only
@@ -1053,7 +1135,8 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                     'documents': filtered_documents,
                     'threshold': threshold,
                     'isFiltered': True,
-                    'source': 'remote_mcp_server'
+                    'source': 'remote_mcp_server',
+                    'sources_summary': sources_summary
                 }
 
         except urllib.error.URLError as e:
@@ -1255,6 +1338,38 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 'success': False,
                 'error': f'Failed to process text: {str(e)}'
             }
+
+    def format_citation(self, doc, language='ru'):
+        """
+        Format citation in standard format
+
+        Args:
+            doc: Document dict with citation fields
+            language: 'ru' or 'en'
+
+        Returns:
+            Formatted citation string
+        """
+        source_file = doc.get('source_file', 'unknown')
+
+        if source_file == 'unknown':
+            return '[unknown source]'
+
+        parts = [source_file]
+
+        # Add page number if available
+        if doc.get('page_number'):
+            page_word = 'стр.' if language == 'ru' else 'p.'
+            parts.append(f"{page_word} {doc['page_number']}")
+
+        # Add chunk info
+        chunk_idx = doc.get('chunk_index', 0)
+        total = doc.get('total_chunks', 1)
+        if total > 1:
+            fragment_word = 'фрагмент' if language == 'ru' else 'chunk'
+            parts.append(f"{fragment_word} {chunk_idx + 1}/{total}")
+
+        return f"[{', '.join(parts)}]"
 
     def _chunk_text(self, text, chunk_size, overlap):
         """Split text into overlapping chunks"""
