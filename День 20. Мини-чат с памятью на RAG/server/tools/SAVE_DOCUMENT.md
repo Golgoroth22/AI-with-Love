@@ -6,7 +6,7 @@ The `save_document` tool saves a document with its embedding to a remote SQLite 
 
 **Tool Type**: Proxied (forwarded to remote MCP server)
 **Emoji**: 💾
-**Remote Server**: 148.253.209.151:8080
+**Remote Server**: 148.253.209.151:22
 **Database**: embeddings.db (on remote server)
 **Embedding Model**: nomic-embed-text (768 dimensions)
 

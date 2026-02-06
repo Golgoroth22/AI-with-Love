@@ -77,7 +77,7 @@ ssh <USERNAME>@<SERVER_IP>
 ```kotlin
 object ServerConfig {
     // Always use SecureData for sensitive values
-    const val MCP_SERVER_URL = "http://${SecureData.serverIp}:8080"
+    const val MCP_SERVER_URL = "http://${SecureData.serverIp}:22"
 }
 ```
 

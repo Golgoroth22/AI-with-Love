@@ -77,7 +77,7 @@ Tools for document indexing, embedding generation, and semantic search.
 
 - **[SAVE_DOCUMENT.md](server/tools/SAVE_DOCUMENT.md)** - Save document with embedding to database
   - Parameters: content (required)
-  - Proxied to remote MCP server (148.253.209.151:8080)
+  - Proxied to remote MCP server (148.253.209.151:22)
   - Stores in `embeddings.db` database
   - Returns document ID on success
 
@@ -228,7 +228,7 @@ Tools for document indexing, embedding generation, and semantic search.
 │  (Your Computer)            │  - JSON-RPC 2.0 protocol
 │  Port: 8080                 │  - SQLite databases
 └────────┬────────────────────┘
-         │ http://148.253.209.151:8080
+         │ http://148.253.209.151:22
          │ (for proxied tools)
          ↓
 ┌─────────────────────────────┐

@@ -6,7 +6,7 @@ The `process_text_chunks` tool processes pre-extracted text by chunking it into 
 
 **Tool Type**: Proxied (forwarded to remote MCP server)
 **Emoji**: 📝
-**Remote Server**: 148.253.209.151:8080
+**Remote Server**: 148.253.209.151:22
 **Timeout**: 300 seconds (5 minutes - for very large documents)
 **Embedding Model**: nomic-embed-text (768 dimensions)
 

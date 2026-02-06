@@ -6,7 +6,7 @@ The `process_pdf` tool processes PDF files by extracting text, chunking it into 
 
 **Tool Type**: Proxied (forwarded to remote MCP server)
 **Emoji**: 📄
-**Remote Server**: 148.253.209.151:8080
+**Remote Server**: 148.253.209.151:22
 **Timeout**: 120 seconds (for large PDFs)
 **Embedding Model**: nomic-embed-text (768 dimensions)
 
@@ -110,7 +110,7 @@ def tool_process_pdf(args: dict) -> dict:
             chunk_overlap = 500
 
         # 2. Forward to remote server
-        remote_url = 'http://148.253.209.151:8080'
+        remote_url = 'http://148.253.209.151:22'
         request_body = {
             'jsonrpc': '2.0',
             'id': 1,

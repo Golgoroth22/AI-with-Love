@@ -20,10 +20,13 @@ EMBEDDINGS_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'd
 OLLAMA_API_URL = "http://localhost:11434"
 
 # Remote MCP server configuration
+# When running on local machine: Uses SSH tunnel (localhost:8081 -> remote:8080)
+# When running on remote machine: Connects directly to localhost:8080
+# This config works for REMOTE deployment (connects to local remote MCP server)
 REMOTE_MCP_SERVER = {
-    'host': '148.253.209.151',
+    'host': 'localhost',
     'port': 8080,
-    'url': 'http://148.253.209.151:8080'
+    'url': 'http://localhost:8080'
 }
 
 # Semantic search configuration

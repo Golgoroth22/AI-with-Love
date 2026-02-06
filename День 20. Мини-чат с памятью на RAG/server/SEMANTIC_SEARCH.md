@@ -53,7 +53,7 @@ API использует OAuth 2.0 для аутентификации [api_guid
 
 **Two Critical Bugs Fixed**:
 1. **Keyword Detection Bug**: Semantic search keywords were incorrectly placed in the joke detection function, preventing the tool from being triggered. Fixed by separating keyword detection into distinct functions.
-2. **Connection Architecture Bug**: Android app was connecting directly to the remote server (148.253.209.151:8080) which doesn't have the `semantic_search` tool. Fixed by configuring the app to connect to the local MCP server (10.0.2.2:8080) which proxies to the remote server.
+2. **Connection Architecture Bug**: Android app was connecting directly to the remote server (148.253.209.151:22) which doesn't have the `semantic_search` tool. Fixed by configuring the app to connect to the local MCP server (10.0.2.2:8080) which proxies to the remote server.
 
 ## Architecture
 
@@ -83,10 +83,11 @@ API использует OAuth 2.0 для аутентификации [api_guid
 └────────┬────────────────────┘
          │ http://148.253.209.151:8080
          │ (only for semantic_search proxy)
+         │ NOTE: Port 22 is SSH only, not HTTP!
          ↓
 ┌─────────────────────────────┐
 │  REMOTE MCP Server          │
-│  (148.253.209.151)          │
+│  (148.253.209.151:8080)     │
 │  - search_similar tool      │
 │  - Embeddings database      │
 │  - Indexed documents        │
@@ -135,7 +136,7 @@ Final Answer to User
 ```python
 REMOTE_MCP_SERVER = {
     'host': '148.253.209.151',
-    'port': 8080,
+    'port': 8080,  # HTTP/MCP port (port 22 is SSH only)
     'url': 'http://148.253.209.151:8080'
 }
 ```
@@ -446,11 +447,11 @@ If no relevant documents are found, answer based on your general knowledge and m
 
 ### Problem Identified
 
-The Android app was incorrectly configured to connect **directly to the remote MCP server** at `148.253.209.151:8080`, which doesn't have the `semantic_search` tool.
+The Android app was incorrectly configured to connect **directly to the remote MCP server** at `148.253.209.151:22`, which doesn't have the `semantic_search` tool.
 
 **Error in logs:**
 ```
-20:39:43.280 McpClient  D  Ktor: REQUEST: http://148.253.209.151:8080
+20:39:43.280 McpClient  D  Ktor: REQUEST: http://148.253.209.151:22
 20:39:43.504 ChatViewModel  E  🌐 Semantic search failed
                               java.lang.Exception: Tool call failed: Unknown tool: semantic_search
 ```
@@ -461,7 +462,7 @@ The Android app was incorrectly configured to connect **directly to the remote M
 ```kotlin
 // ServerConfig.kt
 object ServerConfig {
-    const val MCP_SERVER_URL = "http://148.253.209.151:8080"  // Direct to remote!
+    const val MCP_SERVER_URL = "http://148.253.209.151:22"  // Direct to remote!
 }
 ```
 
@@ -482,7 +483,7 @@ object ServerConfig {
     const val MCP_SERVER_URL = "http://10.0.2.2:8080"
 
     // Remote MCP server (used by local server, not directly by Android app)
-    const val REMOTE_MCP_SERVER_URL = "http://148.253.209.151:8080"
+    const val REMOTE_MCP_SERVER_URL = "http://148.253.209.151:22"
 }
 ```
 
@@ -532,7 +533,7 @@ For **physical devices**, change this to your computer's local IP (e.g., `192.16
    ```python
    def tool_semantic_search(args):
        # Call remote server's search_similar tool
-       remote_url = 'http://148.253.209.151:8080'
+       remote_url = 'http://148.253.209.151:8080'  # Port 8080, not 22 (SSH)
        request = {
            'method': 'tools/call',
            'params': {
@@ -609,7 +610,7 @@ object SecureData {
    - Updated tool count in startup message (line 932)
 
 2. **app/src/main/java/com/example/aiwithlove/util/ServerConfig.kt**
-   - **CRITICAL FIX**: Changed `MCP_SERVER_URL` from `http://148.253.209.151:8080` to `http://10.0.2.2:8080`
+   - **CRITICAL FIX**: Changed `MCP_SERVER_URL` from `http://148.253.209.151:22` to `http://10.0.2.2:8080`
    - Added `REMOTE_MCP_SERVER_URL` constant for reference
    - Added comments explaining emulator vs. physical device configuration
 
@@ -722,6 +723,16 @@ python3 http_mcp_server.py
 curl http://localhost:8080 -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
+### "Unexpected status line: SSH-2.0-OpenSSH..."
+**Symptom:** `java.net.ProtocolException: Unexpected status line: SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.13`
+**Root Cause:** HTTP client trying to connect to SSH port (22) instead of HTTP port (8080)
+**Solution:**
+1. Check `ServerConfig.kt` - should use `http://10.0.2.2:8080` (not `148.253.209.151:22`)
+2. Check `http_mcp_server.py` REMOTE_MCP_SERVER config - should use port 8080 (not 22)
+3. Remember: Port 22 is SSH only, port 8080 is HTTP/MCP endpoint
+4. Rebuild app: `./gradlew clean installDebug`
+5. Restart local server: `cd server && python3 http_mcp_server.py`
+
 ### Tool Not Triggered
 - Check if message contains trigger keywords
 - Verify keywords in `userMentionsSemanticSearch()` function (ChatViewModel.kt ~120)
@@ -754,6 +765,7 @@ ipconfig
 ### Local Server Can't Connect to Remote
 **Symptom:** Local server returns error when calling remote
 **Solution:**
+- ⚠️ **IMPORTANT**: Remote server uses port **8080** for HTTP, not port 22 (SSH)
 - Check remote server is accessible: `curl http://148.253.209.151:8080`
 - Verify firewall settings
 - Check network connectivity

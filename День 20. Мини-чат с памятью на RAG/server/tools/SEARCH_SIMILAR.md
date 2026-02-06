@@ -6,7 +6,7 @@ The `search_similar` tool searches for documents similar to a query using cosine
 
 **Tool Type**: Proxied (forwarded to remote MCP server)
 **Emoji**: 🔍
-**Remote Server**: 148.253.209.151:8080
+**Remote Server**: 148.253.209.151:22
 **Similarity Metric**: Cosine similarity
 **Database**: embeddings.db (on remote server)
 
@@ -143,7 +143,7 @@ def tool_search_similar(args: dict) -> dict:
             limit = 100
 
         # 2. Forward to remote server
-        remote_url = 'http://148.253.209.151:8080'
+        remote_url = 'http://148.253.209.151:22'
         request_body = {
             'jsonrpc': '2.0',
             'id': 1,

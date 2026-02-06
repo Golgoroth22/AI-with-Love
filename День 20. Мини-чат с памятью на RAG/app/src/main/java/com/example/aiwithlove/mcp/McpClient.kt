@@ -24,9 +24,9 @@ class McpClient(
     private val httpClient =
         HttpClient {
             install(HttpTimeout) {
-                requestTimeoutMillis = 600_000 // 10 minutes for PDF processing
-                connectTimeoutMillis = 30_000  // 30 seconds to establish connection
-                socketTimeoutMillis = 600_000  // 10 minutes for socket read/write
+                requestTimeoutMillis = 600000 // 10 minutes - for large file processing
+                connectTimeoutMillis = 30000  // 30 seconds - for establishing connection
+                socketTimeoutMillis = 600000  // 10 minutes - for reading response
             }
 
             install(ContentNegotiation) {

@@ -51,7 +51,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.aiwithlove.data.model.Message
 import com.example.aiwithlove.viewmodel.OllamaViewModel
-import com.example.aiwithlove.viewmodel.PdfUploadState
+import com.example.aiwithlove.viewmodel.DocumentUploadState
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,10 +68,10 @@ fun OllamaScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
-    val pdfUploadState by viewModel.pdfUploadState.collectAsState()
+    val documentUploadState by viewModel.documentUploadState.collectAsState()
 
-    // PDF file picker launcher
-    val pdfPickerLauncher = rememberLauncherForActivityResult(
+    // Document file picker launcher (supports PDF and TXT)
+    val documentPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
@@ -85,9 +85,9 @@ fun OllamaScreen(
             )?.use { cursor ->
                 cursor.moveToFirst()
                 cursor.getString(0)
-            } ?: "document.pdf"
+            } ?: "document"
 
-            viewModel.uploadPdf(uri, fileName, context)
+            viewModel.uploadDocument(uri, fileName, context)
         }
     }
 
@@ -225,11 +225,11 @@ fun OllamaScreen(
                     enabled = !isLoading
                 )
 
-                // PDF Attachment Button
+                // Document Attachment Button (PDF or TXT)
                 IconButton(
                     onClick = {
                         if (!isLoading) {
-                            pdfPickerLauncher.launch(arrayOf("application/pdf"))
+                            documentPickerLauncher.launch(arrayOf("application/pdf", "text/plain"))
                         }
                     },
                     modifier =
@@ -247,7 +247,7 @@ fun OllamaScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = "Attach PDF",
+                        contentDescription = "Attach Document (PDF or TXT)",
                         tint =
                             if (!isLoading) {
                                 MaterialTheme.colorScheme.onSecondaryContainer
@@ -302,8 +302,8 @@ fun OllamaScreen(
                 }
             }
 
-            // PDF Upload Progress Indicator
-            if (pdfUploadState !is PdfUploadState.Idle) {
+            // Document Upload Progress Indicator
+            if (documentUploadState !is DocumentUploadState.Idle) {
                 Row(
                     modifier =
                         Modifier
@@ -315,39 +315,39 @@ fun OllamaScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    when (pdfUploadState) {
-                        is PdfUploadState.Reading -> {
+                    when (documentUploadState) {
+                        is DocumentUploadState.Reading -> {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp))
                             Text(
-                                text = "Чтение PDF: ${(pdfUploadState as PdfUploadState.Reading).fileName}",
+                                text = "Чтение: ${(documentUploadState as DocumentUploadState.Reading).fileName}",
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
-                        is PdfUploadState.Uploading -> {
+                        is DocumentUploadState.Uploading -> {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp))
                             Text(
-                                text = "${(pdfUploadState as PdfUploadState.Uploading).progress}",
+                                text = "${(documentUploadState as DocumentUploadState.Uploading).progress}",
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
-                        is PdfUploadState.Success -> {
+                        is DocumentUploadState.Success -> {
                             Text(
                                 text = "✅",
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Text(
-                                text = "Загружено: ${(pdfUploadState as PdfUploadState.Success).chunksCount} фрагментов",
+                                text = "Загружено: ${(documentUploadState as DocumentUploadState.Success).chunksCount} фрагментов",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer
                             )
                         }
-                        is PdfUploadState.Error -> {
+                        is DocumentUploadState.Error -> {
                             Text(
                                 text = "❌",
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Text(
-                                text = "Ошибка: ${(pdfUploadState as PdfUploadState.Error).message}",
+                                text = "Ошибка: ${(documentUploadState as DocumentUploadState.Error).message}",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.error
                             )

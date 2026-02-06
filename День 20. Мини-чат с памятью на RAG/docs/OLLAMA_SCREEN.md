@@ -90,7 +90,7 @@ Android App (OllamaViewModel)
      ↓
 Local MCP Server (save_document tool)
      ↓
-Remote MCP Server (148.253.209.151:8080)
+Remote MCP Server (148.253.209.151:22)
      ↓
 Ollama API (localhost:11434)
      ↓
@@ -793,7 +793,7 @@ CREATE INDEX idx_created_at ON documents(created_at DESC);
                ↓
 ┌─────────────────────────────┐
 │  Remote MCP Server          │
-│  (148.253.209.151:8080)     │
+│  (148.253.209.151:22)     │
 │  - Ollama integration       │
 │  - Text chunking            │
 │  - Embedding generation     │

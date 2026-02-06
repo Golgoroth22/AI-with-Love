@@ -33,8 +33,8 @@ class OllamaViewModel(
     private val _documentsCount = MutableStateFlow(0)
     val documentsCount: StateFlow<Int> = _documentsCount.asStateFlow()
 
-    private val _pdfUploadState = MutableStateFlow<PdfUploadState>(PdfUploadState.Idle)
-    val pdfUploadState: StateFlow<PdfUploadState> = _pdfUploadState.asStateFlow()
+    private val _documentUploadState = MutableStateFlow<DocumentUploadState>(DocumentUploadState.Idle)
+    val documentUploadState: StateFlow<DocumentUploadState> = _documentUploadState.asStateFlow()
 
     init {
         // Get initial documents count
@@ -121,7 +121,7 @@ class OllamaViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             runAndCatch {
                 // 1. Update state: Reading
-                _pdfUploadState.value = PdfUploadState.Reading(fileName)
+                _documentUploadState.value = DocumentUploadState.Reading(fileName)
                 _isLoading.value = true
 
                 logD("Extracting text from PDF: $fileName")
@@ -156,7 +156,7 @@ class OllamaViewModel(
                 }
 
                 // 4. Update state: Uploading
-                _pdfUploadState.value = PdfUploadState.Uploading(fileName, "Sending text to server for chunking...")
+                _documentUploadState.value = DocumentUploadState.Uploading(fileName, "Sending text to server for chunking...")
 
                 // 5. Call remote MCP server with extracted text
                 val result = mcpClient.callTool(
@@ -200,10 +200,10 @@ class OllamaViewModel(
                             displayTypewriterMessage(successMessage)
 
                             // 10. Update state: Success
-                            _pdfUploadState.value = PdfUploadState.Success(fileName, chunksCount)
+                            _documentUploadState.value = DocumentUploadState.Success(fileName, chunksCount)
                         } else {
                             val errorMsg = parsedResult["error"]?.jsonPrimitive?.content ?: "Unknown error"
-                            _pdfUploadState.value = PdfUploadState.Error(errorMsg)
+                            _documentUploadState.value = DocumentUploadState.Error(errorMsg)
 
                             val errorMessage = "❌ Ошибка при обработке PDF: $errorMsg"
                             _messages.value = _messages.value + Message(text = errorMessage, isFromUser = false)
@@ -213,7 +213,7 @@ class OllamaViewModel(
             }.onFailure { error ->
                 val errorMessage = "❌ Ошибка загрузки PDF: ${error.message}"
                 _messages.value = _messages.value + Message(text = errorMessage, isFromUser = false)
-                _pdfUploadState.value = PdfUploadState.Error(error.message ?: "Unknown error")
+                _documentUploadState.value = DocumentUploadState.Error(error.message ?: "Unknown error")
                 logE("Error in uploadPdf", error)
             }
 
@@ -221,7 +221,121 @@ class OllamaViewModel(
 
             // Reset state after 3 seconds
             delay(3000)
-            _pdfUploadState.value = PdfUploadState.Idle
+            _documentUploadState.value = DocumentUploadState.Idle
+        }
+    }
+
+    fun uploadTxtFile(uri: Uri, fileName: String, context: Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runAndCatch {
+                // 1. Update state: Reading
+                _documentUploadState.value = DocumentUploadState.Reading(fileName)
+                _isLoading.value = true
+
+                logD("Reading text from .txt file: $fileName")
+
+                // 2. Read .txt file content
+                val extractedText = context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                    inputStream.bufferedReader().use { reader ->
+                        reader.readText()
+                    }
+                } ?: throw Exception("Failed to read .txt file")
+
+                val textLength = extractedText.length
+                logD("Read ${textLength} characters from .txt file")
+
+                // 3. Validate text length
+                if (extractedText.isBlank()) {
+                    throw Exception(".txt file is empty")
+                }
+
+                // 4. Update state: Uploading
+                _documentUploadState.value = DocumentUploadState.Uploading(fileName, "Sending text to server for chunking...")
+
+                // 5. Call remote MCP server with extracted text
+                val result = mcpClient.callTool(
+                    toolName = "process_text_chunks",
+                    arguments = mapOf(
+                        "text" to extractedText,
+                        "filename" to fileName
+                    )
+                )
+
+                logD("TXT processing result: $result")
+
+                // 6. Parse result (MCP response format: result.content[0].text contains JSON)
+                val resultJson = Json.parseToJsonElement(result).jsonObject
+                val contentArray = resultJson["content"]?.jsonArray
+
+                if (contentArray != null && contentArray.isNotEmpty()) {
+                    val firstContent = contentArray[0].jsonObject
+                    val textContent = firstContent["text"]?.jsonPrimitive?.content ?: ""
+
+                    if (textContent.isNotEmpty()) {
+                        val parsedResult = Json.parseToJsonElement(textContent).jsonObject
+                        val success = parsedResult["success"]?.jsonPrimitive?.content?.toBoolean() ?: false
+
+                        if (success) {
+                            val chunksCount = parsedResult["chunks_saved"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                            val totalChars = parsedResult["total_characters"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+
+                            // 7. Update documents count
+                            updateDocumentsCount()
+
+                            // 8. Show success message with typewriter animation
+                            val successMessage = buildString {
+                                append("✅ TXT файл обработан успешно!\n\n")
+                                append("📄 Файл: $fileName\n")
+                                append("📊 Создано фрагментов: $chunksCount\n")
+                                append("📝 Всего символов: $totalChars\n\n")
+                                append("🔮 Все фрагменты проиндексированы и доступны для поиска!")
+                            }
+
+                            displayTypewriterMessage(successMessage)
+
+                            // 9. Update state: Success
+                            _documentUploadState.value = DocumentUploadState.Success(fileName, chunksCount)
+                        } else {
+                            val errorMsg = parsedResult["error"]?.jsonPrimitive?.content ?: "Unknown error"
+                            _documentUploadState.value = DocumentUploadState.Error(errorMsg)
+
+                            val errorMessage = "❌ Ошибка при обработке TXT: $errorMsg"
+                            _messages.value = _messages.value + Message(text = errorMessage, isFromUser = false)
+                        }
+                    }
+                }
+            }.onFailure { error ->
+                val errorMessage = "❌ Ошибка загрузки TXT: ${error.message}"
+                _messages.value = _messages.value + Message(text = errorMessage, isFromUser = false)
+                _documentUploadState.value = DocumentUploadState.Error(error.message ?: "Unknown error")
+                logE("Error in uploadTxtFile", error)
+            }
+
+            _isLoading.value = false
+
+            // Reset state after 3 seconds
+            delay(3000)
+            _documentUploadState.value = DocumentUploadState.Idle
+        }
+    }
+
+    fun uploadDocument(uri: Uri, fileName: String, context: Context) {
+        when {
+            fileName.endsWith(".pdf", ignoreCase = true) -> {
+                uploadPdf(uri, fileName, context)
+            }
+            fileName.endsWith(".txt", ignoreCase = true) -> {
+                uploadTxtFile(uri, fileName, context)
+            }
+            else -> {
+                viewModelScope.launch {
+                    _documentUploadState.value = DocumentUploadState.Error(
+                        "Unsupported file type. Please select .pdf or .txt file."
+                    )
+                    delay(3000)
+                    _documentUploadState.value = DocumentUploadState.Idle
+                }
+            }
         }
     }
 
@@ -292,10 +406,10 @@ class OllamaViewModel(
     }
 }
 
-sealed class PdfUploadState {
-    object Idle : PdfUploadState()
-    data class Reading(val fileName: String) : PdfUploadState()
-    data class Uploading(val fileName: String, val progress: String) : PdfUploadState()
-    data class Success(val fileName: String, val chunksCount: Int) : PdfUploadState()
-    data class Error(val message: String) : PdfUploadState()
+sealed class DocumentUploadState {
+    object Idle : DocumentUploadState()
+    data class Reading(val fileName: String) : DocumentUploadState()
+    data class Uploading(val fileName: String, val progress: String) : DocumentUploadState()
+    data class Success(val fileName: String, val chunksCount: Int) : DocumentUploadState()
+    data class Error(val message: String) : DocumentUploadState()
 }
