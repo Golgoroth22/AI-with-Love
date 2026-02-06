@@ -1,0 +1,108 @@
+📦 Database initialized: /Users/falin/AndroidStudioProjects/AI-with-Love/День 19. Цитаты и источники/server/data/jokes.db
+📦 Embeddings database initialized: /Users/falin/AndroidStudioProjects/AI-with-Love/День 19. Цитаты и источники/server/data/embeddings.db
+======================================================================
+           🚀 MCP HTTP Server with JokeAPI, Ollama & SQLite            
+======================================================================
+Server: http://0.0.0.0:8080
+From Android emulator: http://10.0.2.2:8080
+From real device: http://<your-computer-ip>:8080
+
+Available Tools (10):
+  🎭 get_joke              - Get random jokes from JokeAPI
+  💾 save_joke             - Save a joke to local database
+  📖 get_saved_jokes       - Get all saved jokes from database
+  🧪 run_tests             - Run server tests in Docker container
+  🔮 create_embedding      - Generate embeddings using Ollama
+  📝 save_document         - Save document with embeddings
+  🔍 search_similar        - Search similar documents by embeddings
+  🌐 semantic_search       - Search relevant chunks from remote MCP server
+  📄 process_pdf           - Extract text from PDF, chunk, and index
+  📝 process_text_chunks   - Process extracted text into chunks
+
+Databases:
+  📦 Jokes: /Users/falin/AndroidStudioProjects/AI-with-Love/День 19. Цитаты и источники/server/data/jokes.db
+  📦 Embeddings: /Users/falin/AndroidStudioProjects/AI-with-Love/День 19. Цитаты и источники/server/data/embeddings.db
+
+JokeAPI Integration:
+  • Base URL: https://v2.jokeapi.dev
+  • Categories: Any, Programming, Misc, Dark, Pun, Spooky, Christmas
+  • Safe mode support via blacklist flags
+
+Ollama Integration:
+  • API URL: http://localhost:11434
+  • Model: nomic-embed-text
+  • Embedding dimensions: 768
+
+Docker Testing:
+  • Image: mcp-server-tests
+  • Timeout: 120 seconds
+  • Auto-cleanup: enabled
+
+Press Ctrl+C to stop
+======================================================================
+
+[2026-02-05 21:54:43] 📨 Received request: tools/list
+[2026-02-05 21:54:43] "POST / HTTP/1.1" 200 -
+[2026-02-05 21:54:43] ✅ Response sent successfully
+[2026-02-05 21:59:21] 📨 Received request: tools/call
+[2026-02-05 21:59:21] 🔧 Calling tool: semantic_search with args: {'limit': 3, 'query': 'Banzai! Bushido', 'threshold': 0.6000000238418579, 'compare_mode': True}
+[2026-02-05 21:59:21] 🌐 Semantic search on remote server: Banzai! Bushido... (threshold=0.60, compare_mode=True)
+[2026-02-05 21:59:21] 📡 Calling remote MCP server at http://148.253.209.151:8080 (requesting 6 docs)
+[2026-02-05 21:59:22] ✅ Received response from remote server
+[2026-02-05 21:59:22] 🔍 Received 6 documents from remote server
+[2026-02-05 21:59:22] ✅ After threshold filtering: 1 documents pass (threshold=0.60)
+[2026-02-05 21:59:22] ✨ Tool result: {"success": true, "threshold": 0.6000000238418579, "unfiltered": {"count": 3, "documents": [{"id": 1...
+[2026-02-05 21:59:22] "POST / HTTP/1.1" 200 -
+[2026-02-05 21:59:22] ✅ Response sent successfully
+[2026-02-05 22:00:09] 📨 Received request: tools/call
+[2026-02-05 22:00:09] 🔧 Calling tool: semantic_search with args: {'limit': 3, 'query': 'Banzai! Bushido приём "Banzai!" Bushido', 'threshold': 0.5, 'compare_mode': True}
+[2026-02-05 22:00:09] 🌐 Semantic search on remote server: Banzai! Bushido приём "Banzai!" Bushido... (threshold=0.50, compare_mode=True)
+[2026-02-05 22:00:09] 📡 Calling remote MCP server at http://148.253.209.151:8080 (requesting 6 docs)
+[2026-02-05 22:00:10] ✅ Received response from remote server
+[2026-02-05 22:00:10] 🔍 Received 6 documents from remote server
+[2026-02-05 22:00:10] ✅ After threshold filtering: 3 documents pass (threshold=0.50)
+[2026-02-05 22:00:10] ✨ Tool result: {"success": true, "threshold": 0.5, "unfiltered": {"count": 3, "documents": [{"id": 528, "content": ...
+[2026-02-05 22:00:10] "POST / HTTP/1.1" 200 -
+[2026-02-05 22:00:10] ✅ Response sent successfully
+[2026-02-05 22:00:20] 📨 Received request: tools/call
+[2026-02-05 22:00:20] 🔧 Calling tool: semantic_search with args: {'limit': 3, 'query': 'Banzai! в Bushido приём Banzai Bushido', 'threshold': 0.5, 'compare_mode': True}
+[2026-02-05 22:00:20] 🌐 Semantic search on remote server: Banzai! в Bushido приём Banzai Bushido... (threshold=0.50, compare_mode=True)
+[2026-02-05 22:00:20] 📡 Calling remote MCP server at http://148.253.209.151:8080 (requesting 6 docs)
+[2026-02-05 22:00:21] ✅ Received response from remote server
+[2026-02-05 22:00:21] 🔍 Received 6 documents from remote server
+[2026-02-05 22:00:21] ✅ After threshold filtering: 3 documents pass (threshold=0.50)
+[2026-02-05 22:00:21] ✨ Tool result: {"success": true, "threshold": 0.5, "unfiltered": {"count": 3, "documents": [{"id": 3, "content": "B...
+[2026-02-05 22:00:21] "POST / HTTP/1.1" 200 -
+[2026-02-05 22:00:21] ✅ Response sent successfully
+[2026-02-05 22:00:25] 📨 Received request: tools/call
+[2026-02-05 22:00:25] 🔧 Calling tool: semantic_search with args: {'limit': 3, 'query': 'Banzai! в Bushido', 'threshold': 0.5, 'compare_mode': True}
+[2026-02-05 22:00:25] 🌐 Semantic search on remote server: Banzai! в Bushido... (threshold=0.50, compare_mode=True)
+[2026-02-05 22:00:25] 📡 Calling remote MCP server at http://148.253.209.151:8080 (requesting 6 docs)
+[2026-02-05 22:00:26] ✅ Received response from remote server
+[2026-02-05 22:00:26] 🔍 Received 6 documents from remote server
+[2026-02-05 22:00:26] ✅ After threshold filtering: 3 documents pass (threshold=0.50)
+[2026-02-05 22:00:26] ✨ Tool result: {"success": true, "threshold": 0.5, "unfiltered": {"count": 3, "documents": [{"id": 1, "content": "M...
+[2026-02-05 22:00:26] "POST / HTTP/1.1" 200 -
+[2026-02-05 22:00:26] ✅ Response sent successfully
+[2026-02-05 22:01:13] 📨 Received request: tools/call
+[2026-02-05 22:01:13] 🔧 Calling tool: semantic_search with args: {'limit': 3, 'query': 'stunned state в Bushido stunned state Bushido', 'threshold': 0.5, 'compare_mode': True}
+[2026-02-05 22:01:13] 🌐 Semantic search on remote server: stunned state в Bushido stunned state Bushido... (threshold=0.50, compare_mode=True)
+[2026-02-05 22:01:13] 📡 Calling remote MCP server at http://148.253.209.151:8080 (requesting 6 docs)
+[2026-02-05 22:01:13] ✅ Received response from remote server
+[2026-02-05 22:01:13] 🔍 Received 6 documents from remote server
+[2026-02-05 22:01:13] ✅ After threshold filtering: 3 documents pass (threshold=0.50)
+[2026-02-05 22:01:13] ✨ Tool result: {"success": true, "threshold": 0.5, "unfiltered": {"count": 3, "documents": [{"id": 633, "content": ...
+[2026-02-05 22:01:13] "POST / HTTP/1.1" 200 -
+[2026-02-05 22:01:13] ✅ Response sent successfully
+[2026-02-05 22:02:29] 📨 Received request: tools/call
+[2026-02-05 22:02:29] 🔧 Calling tool: semantic_search with args: {'limit': 3, 'query': "Idols scenario Bushido Idols scenario rules Bushido 'Idols' scenario", 'threshold': 0.5, 'compare_mode': True}
+[2026-02-05 22:02:29] 🌐 Semantic search on remote server: Idols scenario Bushido Idols scenario rules Bushid... (threshold=0.50, compare_mode=True)
+[2026-02-05 22:02:29] 📡 Calling remote MCP server at http://148.253.209.151:8080 (requesting 6 docs)
+[2026-02-05 22:02:29] ✅ Received response from remote server
+[2026-02-05 22:02:29] 🔍 Received 6 documents from remote server
+[2026-02-05 22:02:29] ✅ After threshold filtering: 3 documents pass (threshold=0.50)
+[2026-02-05 22:02:29] ✨ Tool result: {"success": true, "threshold": 0.5, "unfiltered": {"count": 3, "documents": [{"id": 655, "content": ...
+[2026-02-05 22:02:29] "POST / HTTP/1.1" 200 -
+[2026-02-05 22:02:29] ✅ Response sent successfully
+[2026-02-05 22:02:32] 📨 Received request: tools/call
+[2026-02-05 22:02:32] 🔧 Calling tool: semantic_search with args: {'limit': 3, 'query': "Idols scenario Bushido Idols scenario 'Idols' Bushido Risen Sun rules scenario Idols", 'threshold': 0.5, 'compare_mode': True}
