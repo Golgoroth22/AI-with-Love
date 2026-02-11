@@ -581,6 +581,57 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 }
             },
             {
+                'name': 'get_pull_request',
+                'description': 'Get pull request details including title, description, state, author, and metadata. Owner defaults to Golgoroth22 if not specified.',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'owner': {
+                            'type': 'string',
+                            'description': 'Repository owner (default: Golgoroth22)',
+                            'default': 'Golgoroth22'
+                        },
+                        'repo': {
+                            'type': 'string',
+                            'description': 'Repository name'
+                        },
+                        'pr_number': {
+                            'type': 'integer',
+                            'description': 'Pull request number'
+                        }
+                    },
+                    'required': ['repo', 'pr_number']
+                }
+            },
+            {
+                'name': 'get_pr_files',
+                'description': 'Get list of files changed in a pull request with diffs. Includes filename, status, additions, deletions, and patch content. Owner defaults to Golgoroth22 if not specified.',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'owner': {
+                            'type': 'string',
+                            'description': 'Repository owner (default: Golgoroth22)',
+                            'default': 'Golgoroth22'
+                        },
+                        'repo': {
+                            'type': 'string',
+                            'description': 'Repository name'
+                        },
+                        'pr_number': {
+                            'type': 'integer',
+                            'description': 'Pull request number'
+                        },
+                        'max_files': {
+                            'type': 'integer',
+                            'description': 'Maximum number of files to return (default: 30, prevents overload)',
+                            'default': 30
+                        }
+                    },
+                    'required': ['repo', 'pr_number']
+                }
+            },
+            {
                 'name': 'git_status',
                 'description': 'Get current git repository status: modified files, staged files, untracked files, current branch, ahead/behind remote',
                 'inputSchema': {
@@ -706,6 +757,10 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 result = self.tool_list_commits(arguments)
             elif tool_name == 'get_repo_content':
                 result = self.tool_get_repo_content(arguments)
+            elif tool_name == 'get_pull_request':
+                result = self.tool_get_pull_request(arguments)
+            elif tool_name == 'get_pr_files':
+                result = self.tool_get_pr_files(arguments)
             elif tool_name == 'git_status':
                 result = self.tool_git_status(arguments)
             elif tool_name == 'git_branch':
@@ -1397,6 +1452,123 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 }
         except Exception as e:
             self.log(f"❌ GitHub API error: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_get_pull_request(self, args):
+        """Get pull request details from GitHub"""
+        owner = args.get('owner', GITHUB_DEFAULT_OWNER)
+        repo = args.get('repo')
+        pr_number = args.get('pr_number')
+
+        if not all([repo, pr_number]):
+            return {'success': False, 'error': 'repo and pr_number are required'}
+
+        # Validate PR number
+        if not isinstance(pr_number, int) or pr_number < 1:
+            return {'success': False, 'error': 'pr_number must be a positive integer'}
+
+        try:
+            data = github_api_request(f"/repos/{owner}/{repo}/pulls/{pr_number}")
+
+            return {
+                'success': True,
+                'number': data['number'],
+                'title': data['title'],
+                'body': data.get('body', ''),
+                'state': data['state'],
+                'author': data['user']['login'],
+                'author_avatar': data['user']['avatar_url'],
+                'created_at': data['created_at'],
+                'updated_at': data['updated_at'],
+                'closed_at': data.get('closed_at'),
+                'merged_at': data.get('merged_at'),
+                'base_branch': data['base']['ref'],
+                'head_branch': data['head']['ref'],
+                'mergeable': data.get('mergeable'),
+                'mergeable_state': data.get('mergeable_state', ''),
+                'draft': data.get('draft', False),
+                'changed_files': data.get('changed_files', 0),
+                'additions': data.get('additions', 0),
+                'deletions': data.get('deletions', 0),
+                'commits': data.get('commits', 0),
+                'comments': data.get('comments', 0),
+                'review_comments': data.get('review_comments', 0),
+                'url': data['html_url']
+            }
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return {'success': False, 'error': f'PR #{pr_number} not found in {owner}/{repo}'}
+            elif e.code == 403:
+                return {'success': False, 'error': 'GitHub API rate limit exceeded. Try again later.'}
+            else:
+                self.log(f"❌ GitHub API error {e.code}: {str(e)}")
+                return {'success': False, 'error': f'GitHub API error: {e.code}'}
+        except Exception as e:
+            self.log(f"❌ Error getting PR: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_get_pr_files(self, args):
+        """Get list of files changed in a pull request"""
+        owner = args.get('owner', GITHUB_DEFAULT_OWNER)
+        repo = args.get('repo')
+        pr_number = args.get('pr_number')
+        max_files = args.get('max_files', 30)
+
+        if not all([repo, pr_number]):
+            return {'success': False, 'error': 'repo and pr_number are required'}
+
+        # Validate PR number
+        if not isinstance(pr_number, int) or pr_number < 1:
+            return {'success': False, 'error': 'pr_number must be a positive integer'}
+
+        # Validate max_files
+        if not isinstance(max_files, int) or max_files < 1 or max_files > 100:
+            max_files = 30  # Default to safe value
+
+        try:
+            # Fetch files from GitHub API
+            data = github_api_request(f"/repos/{owner}/{repo}/pulls/{pr_number}/files?per_page={max_files}")
+
+            files = []
+            for file_data in data[:max_files]:
+                file_info = {
+                    'filename': file_data['filename'],
+                    'status': file_data['status'],  # added, removed, modified, renamed
+                    'additions': file_data['additions'],
+                    'deletions': file_data['deletions'],
+                    'changes': file_data['changes'],
+                    'blob_url': file_data.get('blob_url', ''),
+                    'raw_url': file_data.get('raw_url', ''),
+                    'patch': file_data.get('patch', '')  # Actual diff content
+                }
+
+                # Add previous filename if file was renamed
+                if file_data.get('previous_filename'):
+                    file_info['previous_filename'] = file_data['previous_filename']
+
+                files.append(file_info)
+
+            total_files = len(data)
+            truncated = total_files > max_files
+
+            return {
+                'success': True,
+                'pr_number': pr_number,
+                'count': len(files),
+                'total_files': total_files,
+                'truncated': truncated,
+                'files': files
+            }
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return {'success': False, 'error': f'PR #{pr_number} not found in {owner}/{repo}'}
+            elif e.code == 403:
+                return {'success': False, 'error': 'GitHub API rate limit exceeded. Try again later.'}
+            else:
+                self.log(f"❌ GitHub API error {e.code}: {str(e)}")
+                return {'success': False, 'error': f'GitHub API error: {e.code}'}
+        except Exception as e:
+            self.log(f"❌ Error getting PR files: {str(e)}")
             return {'success': False, 'error': str(e)}
 
     def tool_git_status(self, args):

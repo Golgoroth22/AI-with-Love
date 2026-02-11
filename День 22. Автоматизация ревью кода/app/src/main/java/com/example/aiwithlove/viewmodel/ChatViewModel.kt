@@ -102,6 +102,39 @@ class ChatViewModel(
 
     private fun isLocalGitServerEnabled(): Boolean = _mcpServers.value.any { it.id == "local_git" && it.isEnabled }
 
+    private fun userMentionsCodeReview(message: String): Boolean {
+        val lowerMessage = message.lowercase()
+
+        // Direct keyword detection
+        val hasKeyword = lowerMessage.contains("reviewpr") ||
+                        lowerMessage.contains("код-ревью") ||
+                        lowerMessage.contains("code review")
+
+        if (hasKeyword) return true
+
+        // Context-aware detection: if message is short and looks like a PR reference,
+        // check if recent conversation was about code review
+        if (message.trim().length < 30 && message.contains("#")) {
+            // Check last 5 messages for code review context
+            val recentMessages = _messages.value.takeLast(5)
+            val hasRecentCodeReviewContext = recentMessages.any { msg ->
+                msg.text.lowercase().let { text ->
+                    text.contains("reviewpr") ||
+                    text.contains("код-ревью") ||
+                    text.contains("code review") ||
+                    text.contains("pull request") ||
+                    text.contains("pr #")
+                }
+            }
+            if (hasRecentCodeReviewContext) {
+                logD("🔍 Context-aware detection: continuing code review conversation")
+                return true
+            }
+        }
+
+        return false
+    }
+
     private fun buildGetRepoTool(): AgenticTool {
         val parameters =
             buildJsonObject {
@@ -294,6 +327,77 @@ class ChatViewModel(
             type = "function",
             name = "get_repo_content",
             description = "Get contents of a file or directory from a GitHub repository",
+            parameters = parameters
+        )
+    }
+
+    private fun buildGetPullRequestTool(): AgenticTool {
+        val parameters =
+            buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("owner") {
+                        put("type", "string")
+                        put("description", "Repository owner (default: Golgoroth22)")
+                        put("default", "Golgoroth22")
+                    }
+                    putJsonObject("repo") {
+                        put("type", "string")
+                        put("description", "Repository name")
+                    }
+                    putJsonObject("pr_number") {
+                        put("type", "integer")
+                        put("description", "Pull request number")
+                    }
+                }
+                putJsonArray("required") {
+                    add(JsonPrimitive("repo"))
+                    add(JsonPrimitive("pr_number"))
+                }
+            }
+
+        return AgenticTool(
+            type = "function",
+            name = "get_pull_request",
+            description = "Get pull request details including title, description, state, author, and metadata",
+            parameters = parameters
+        )
+    }
+
+    private fun buildGetPrFilesTool(): AgenticTool {
+        val parameters =
+            buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("owner") {
+                        put("type", "string")
+                        put("description", "Repository owner (default: Golgoroth22)")
+                        put("default", "Golgoroth22")
+                    }
+                    putJsonObject("repo") {
+                        put("type", "string")
+                        put("description", "Repository name")
+                    }
+                    putJsonObject("pr_number") {
+                        put("type", "integer")
+                        put("description", "Pull request number")
+                    }
+                    putJsonObject("max_files") {
+                        put("type", "integer")
+                        put("description", "Maximum number of files to return (default: 30)")
+                        put("default", 30)
+                    }
+                }
+                putJsonArray("required") {
+                    add(JsonPrimitive("repo"))
+                    add(JsonPrimitive("pr_number"))
+                }
+            }
+
+        return AgenticTool(
+            type = "function",
+            name = "get_pr_files",
+            description = "Get list of files changed in a pull request with diffs and patches",
             parameters = parameters
         )
     }
@@ -578,7 +682,7 @@ class ChatViewModel(
 
             // GitHub tools
             "get_repo", "search_code", "create_issue", "list_issues",
-            "list_commits", "get_repo_content" -> {
+            "list_commits", "get_repo_content", "get_pull_request", "get_pr_files" -> {
                 runAndCatch {
                     val args = parseToolArguments(arguments)
                     val requestBody = arguments ?: "{}"
@@ -722,10 +826,11 @@ class ChatViewModel(
         useJokeTools: Boolean,
         useSemanticSearch: Boolean,
         useGitHubTools: Boolean,
-        useLocalGitTools: Boolean
+        useLocalGitTools: Boolean,
+        useCodeReview: Boolean = false
     ): String {
         val baseInstruction = "You are a helpful assistant. Respond in Russian."
-        if (!useJokeTools && !useSemanticSearch && !useGitHubTools && !useLocalGitTools) return baseInstruction
+        if (!useJokeTools && !useSemanticSearch && !useGitHubTools && !useLocalGitTools && !useCodeReview) return baseInstruction
 
         val instructions = mutableListOf<String>()
         instructions.add(baseInstruction)
@@ -790,6 +895,69 @@ Example questions:
 - "есть ли открытые PR?" → use git_pr_status
 
 Respond in Russian with clear formatting. Use code blocks for diffs and file lists.
+                """.trimIndent()
+            )
+        }
+
+        if (useCodeReview) {
+            instructions.add(
+                """
+Code Review Process:
+IMPORTANT PARSING RULES:
+- Owner is ALWAYS "Golgoroth22" (never ask user for owner)
+- Parse repository name from user message:
+  * "ReviewPR AI-with-Love#123" → repo="AI-with-Love", pr_number=123
+  * "ReviewPR Day 22#1" → repo="AI-with-Love", pr_number=1 (interpret "Day 22" as referring to current project "AI-with-Love")
+  * "ReviewPR #123" → repo="AI-with-Love", pr_number=123 (use default repo)
+  * Repository name with spaces like "День 22. Автоматизация ревью кода" should be interpreted as "AI-with-Love"
+- If user mentions a day/lesson number (Day 22, День 22), they're referring to the "AI-with-Love" repository
+- Extract PR number from patterns: #N, PR#N, PR N, pull request #N
+
+Steps:
+1. Parse repo name and PR number from user message (owner is always "Golgoroth22")
+2. Call get_pull_request with: owner="Golgoroth22", repo=<parsed_repo>, pr_number=<parsed_number>
+3. Call get_pr_files with same parameters (up to 30 files max)
+4. Analyze each file for common issues:
+   - Security issues: hardcoded secrets (passwords, tokens, API keys), SQL injection patterns, unsafe API usage
+   - Logic bugs: missing null checks, empty catch blocks, unhandled edge cases, force unwraps (!! in Kotlin)
+   - Performance issues: nested loops without break conditions, inefficient algorithms
+   - Style violations: debug prints (println, console.log), unresolved TODOs, naming conventions
+5. Format review as markdown with:
+   - Overall summary with PR title, author, stats
+   - Overall assessment score (0-10)
+   - Issue breakdown by severity: 🔴 critical, 🟠 major, 🟡 minor, 🔵 info
+   - File-by-file analysis with line numbers
+   - Specific recommendations for each issue
+
+IMPORTANT:
+- NEVER ask user for clarification about owner/repo - always use owner="Golgoroth22" and interpret repo name intelligently
+- Check for issues equally across all categories (security, bugs, performance, style)
+- Use line numbers from patches when available
+- If PR has >30 files, warn user about potential incomplete review
+- Keep review concise but actionable
+- Respond in Russian
+
+Example parsing:
+Input: "ReviewPR проверь PR Day 22#1"
+→ Call: get_pull_request(owner="Golgoroth22", repo="AI-with-Love", pr_number=1)
+
+Example format:
+# 📋 Code Review: PR #123
+
+**Название:** Add new feature
+**Автор:** username
+**Файлов изменено:** 5 (+120, -30 строк)
+
+## Общая оценка: 8/10 ⭐
+
+**Проблемы:**
+- 🔴 0 критических
+- 🟠 1 серьёзных
+- 🟡 3 незначительных
+
+### Файл: `ChatViewModel.kt`
+**🟠 Line 425:** Отсутствует обработка ошибок
+**Рекомендация:** Используйте runAndCatch wrapper
                 """.trimIndent()
             )
         }
@@ -939,6 +1107,7 @@ Respond in Russian with clear formatting. Use code blocks for diffs and file lis
             // Detect GitHub and Local Git mentions
             val useGitHubTools = isGitHubServerEnabled() && userMentionsGitHub(userMessage)
             val useLocalGitTools = isLocalGitServerEnabled() && userMentionsLocalGit(userMessage)
+            val useCodeReview = isGitHubServerEnabled() && userMentionsCodeReview(userMessage)
 
             val tools =
                 buildList {
@@ -951,6 +1120,11 @@ Respond in Russian with clear formatting. Use code blocks for diffs and file lis
                         add(buildListCommitsTool())
                         add(buildGetRepoContentTool())
                     }
+                    if (useCodeReview) {
+                        // Add Code Review tools
+                        add(buildGetPullRequestTool())
+                        add(buildGetPrFilesTool())
+                    }
                     if (useLocalGitTools) {
                         // Add Local Git tools
                         add(buildGitStatusTool())
@@ -960,9 +1134,9 @@ Respond in Russian with clear formatting. Use code blocks for diffs and file lis
                     }
                 }.takeIf { it.isNotEmpty() }
 
-            val instructions = buildInstructions(useJokeTools, false, useGitHubTools, useLocalGitTools)
+            val instructions = buildInstructions(useJokeTools, false, useGitHubTools, useLocalGitTools, useCodeReview)
 
-            logD("📤 Sending Agentic request with ${tools?.size ?: 0} tools (GitHub: $useGitHubTools, LocalGit: $useLocalGitTools)")
+            logD("📤 Sending Agentic request with ${tools?.size ?: 0} tools (GitHub: $useGitHubTools, LocalGit: $useLocalGitTools, CodeReview: $useCodeReview)")
 
             var response =
                 perplexityService.sendAgenticRequest(
