@@ -53,7 +53,7 @@ object McpServers {
                 id = "github",
                 name = "GitHub Assistant",
                 url = if (ServerConfig.GITHUB_MCP_USE_LOCAL) ServerConfig.GITHUB_MCP_LOCAL_URL else ServerConfig.GITHUB_MCP_SERVER_URL,
-                description = "GitHub операции: репозитории, issues, PRs, коммиты, поиск кода",
+                description = "GitHub операции: репозитории, issues, PRs, коммиты, поиск кода, code review",
                 tools =
                     listOf(
                         McpToolInfo(
@@ -91,6 +91,18 @@ object McpServers {
                             emoji = "📄",
                             description = "Получить содержимое файла из репозитория",
                             triggerWords = listOf("GitWithLove")
+                        ),
+                        McpToolInfo(
+                            name = "get_pull_request",
+                            emoji = "🔍",
+                            description = "Получить информацию о pull request (для code review)",
+                            triggerWords = listOf("ReviewPR", "код-ревью", "code review")
+                        ),
+                        McpToolInfo(
+                            name = "get_pr_files",
+                            emoji = "📋",
+                            description = "Получить список изменённых файлов в PR с diff",
+                            triggerWords = listOf("ReviewPR", "код-ревью", "code review")
                         )
                     ),
                 isEnabled = false

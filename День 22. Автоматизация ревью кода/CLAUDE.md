@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **AI with Love** is an educational Android application demonstrating agentic AI patterns with RAG (Retrieval-Augmented Generation) capabilities. The app integrates with a custom MCP (Model Context Protocol) server for tool execution and uses Perplexity's Agentic API for intelligent responses.
 
-**Current Day**: День 21 (Day 21) - Ассистент разработчика (Developer Assistant)
+**Current Day**: День 22 (Day 22) - Автоматизация ревью кода (Code Review Automation)
 
 ## ⚡ Day 21 Updates: Local Processing Architecture
 
@@ -50,6 +50,86 @@ See `LOCAL_PROCESSING.md` for detailed documentation.
 - Hybrid workflows: combine GitHub data with local RAG documents
 
 See `GITHUB_INTEGRATION.md` for complete documentation.
+
+## 🔍 Code Review Automation (Day 22)
+
+**New Feature**: The app can now perform automated code reviews on GitHub pull requests using AI-powered analysis.
+
+**Implementation Note**: PR reviews are currently triggered **manually through the chat interface**, not via CI/CD pipeline. The app fetches PR data via GitHub's MCP server and performs analysis client-side.
+
+**Available Operations:**
+- **PR Analysis**: `get_pull_request` - Fetch PR metadata (title, author, stats, status)
+- **File Review**: `get_pr_files` - Get list of changed files with diffs and patches
+- **Code Analysis**: Pattern-based detection for security, bugs, performance, and style issues
+
+**Setup:**
+1. Ensure GitHub Personal Access Token is configured (see Day 21 setup above)
+2. Enable "GitHub Assistant" in MCP dialog (chat screen, wrench icon)
+3. Optionally: Index project documentation (CLAUDE.md, etc.) via Ollama screen for context-aware reviews
+
+**Example Queries:** (use "ReviewPR" keyword to activate)
+```
+"ReviewPR сделай ревью для PR #45"
+"ReviewPR проверь pull request Golgoroth22/AI-with-Love#12"
+"код-ревью для PR #8"
+```
+
+**PR Reference Parsing:**
+The AI automatically parses PR references from user messages:
+- Owner is always "Golgoroth22" (hardcoded, never asks for clarification)
+- Supported formats:
+  - `ReviewPR AI-with-Love#123` → repo="AI-with-Love", pr_number=123
+  - `ReviewPR #123` → uses default repo "AI-with-Love"
+  - `ReviewPR Day 22#1` → interprets "Day 22" as "AI-with-Love" repository
+  - Repository names with spaces (like "День 22. Автоматизация ревью кода") → "AI-with-Love"
+
+**Review Output:**
+- Overall score and recommendation (0-10 scale)
+- Issue breakdown by severity: 🔴 critical, 🟠 major, 🟡 minor, 🔵 info
+- File-by-file analysis with specific line numbers
+- Recommendations with actionable fixes
+- Optional RAG-enhanced citations from indexed project docs
+
+**Review Output Format:**
+```
+# 📋 Code Review: PR #123
+
+**Название:** Add new feature
+**Автор:** username
+**Файлов изменено:** 5 (+120, -30 строк)
+
+## Общая оценка: 8/10 ⭐
+
+**Проблемы:**
+- 🔴 0 критических
+- 🟠 1 серьёзных
+- 🟡 3 незначительных
+
+### Файл: `ChatViewModel.kt`
+**🟠 Line 425:** Отсутствует обработка ошибок
+**Рекомендация:** Используйте runAndCatch wrapper
+```
+
+**Analysis Categories** (equal priority):
+- **Security**: Hardcoded secrets, SQL injection, unsafe API usage
+- **Bugs**: Missing null checks, empty catch blocks, force unwraps (!!)
+- **Performance**: Nested loops, inefficient algorithms
+- **Style**: Debug prints, unresolved TODOs, naming conventions
+
+**Limitations:**
+- Max 30 files per PR (warns for larger PRs and suggests scope reduction)
+- Analysis focuses on Kotlin and Python patterns
+- RAG context requires pre-indexed .md documentation
+
+**Architecture:**
+- Extends existing GitHub MCP server with PR-specific tools
+- Uses agentic loop for multi-step analysis workflow
+- Integrates semantic search for project standards when available
+
+**Future Enhancements (Planned):**
+- GitHub Actions workflow for automatic PR review on pull_request events
+- Comment posting directly to PR via GitHub API
+- Integration with GitHub Checks API for status reporting
 
 ## Build & Run Commands
 
@@ -284,7 +364,7 @@ Three main entities in `AppDatabase`:
 
 | File Path | Responsibility |
 |-----------|---------------|
-| `app/src/main/java/com/example/aiwithlove/viewmodel/ChatViewModel.kt` | Agentic orchestration, tool execution, dialog management |
+| `app/src/main/java/com/example/aiwithlove/viewmodel/ChatViewModel.kt` | Agentic orchestration, tool execution, dialog management, PR review keyword detection and instructions |
 | `app/src/main/java/com/example/aiwithlove/viewmodel/OllamaViewModel.kt` | Document indexing, PDF processing |
 | `app/src/main/java/com/example/aiwithlove/ui/screen/ChatScreen.kt` | Chat UI, message rendering, MCP tool info display |
 | `app/src/main/java/com/example/aiwithlove/ui/screen/OllamaScreen.kt` | Document upload UI, indexing interface |
@@ -583,3 +663,4 @@ object SecureData {
 ```
 
 Add to `.gitignore` if not already present.
+  

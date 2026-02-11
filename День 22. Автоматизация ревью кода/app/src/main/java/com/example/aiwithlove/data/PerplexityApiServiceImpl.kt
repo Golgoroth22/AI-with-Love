@@ -47,9 +47,9 @@ class PerplexityApiServiceImpl(
                 )
             }
             install(HttpTimeout) {
-                requestTimeoutMillis = 60000
+                requestTimeoutMillis = 180000  // 3 minutes for code review analysis
                 connectTimeoutMillis = 30000
-                socketTimeoutMillis = 60000
+                socketTimeoutMillis = 180000   // 3 minutes for code review analysis
             }
             install(Logging) {
                 level = LogLevel.INFO
