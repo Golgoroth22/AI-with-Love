@@ -1,9 +1,13 @@
 package com.example.aiwithlove.mcp
 
 import com.example.aiwithlove.util.ILoggable
+import com.example.aiwithlove.util.SecureData
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.auth.Auth
+import io.ktor.client.plugins.auth.providers.BearerTokens
+import io.ktor.client.plugins.auth.providers.bearer
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
@@ -18,15 +22,17 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 class McpClient(
-    private val serverUrl: String
+    private val serverUrl: String,
+    private val serverId: String = "default",
+    private val requiresAuth: Boolean = false
 ) : ILoggable {
 
     private val httpClient =
         HttpClient {
             install(HttpTimeout) {
                 requestTimeoutMillis = 600000 // 10 minutes - for large file processing
-                connectTimeoutMillis = 30000  // 30 seconds - for establishing connection
-                socketTimeoutMillis = 600000  // 10 minutes - for reading response
+                connectTimeoutMillis = 30000 // 30 seconds - for establishing connection
+                socketTimeoutMillis = 600000 // 10 minutes - for reading response
             }
 
             install(ContentNegotiation) {
@@ -38,11 +44,25 @@ class McpClient(
                 )
             }
 
+            // Add authentication plugin for GitHub MCP server
+            if (requiresAuth && serverId == "github") {
+                install(Auth) {
+                    bearer {
+                        loadTokens {
+                            BearerTokens(
+                                accessToken = SecureData.githubPersonalAccessToken,
+                                refreshToken = ""
+                            )
+                        }
+                    }
+                }
+            }
+
             install(Logging) {
                 logger =
                     object : Logger {
                         override fun log(message: String) {
-                            logD("Ktor: $message")
+                            logD("Ktor [$serverId]: $message")
                         }
                     }
                 level = LogLevel.INFO

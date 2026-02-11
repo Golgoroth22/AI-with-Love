@@ -13,21 +13,12 @@ import os
 import subprocess
 import re
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'jokes.db')
 EMBEDDINGS_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'embeddings.db')
-# Use remote Ollama server for embeddings (remote MCP server has Ollama running)
+# Use local Ollama instance for embeddings
 OLLAMA_API_URL = "http://localhost:11434"
-
-# Remote MCP server configuration
-# When running on local machine: Uses SSH tunnel (localhost:8081 -> remote:8080)
-# When running on remote machine: Connects directly to localhost:8080
-# This config works for REMOTE deployment (connects to local remote MCP server)
-REMOTE_MCP_SERVER = {
-    'host': 'localhost',
-    'port': 8080,
-    'url': 'http://localhost:8080'
-}
 
 # Semantic search configuration
 SEMANTIC_SEARCH_CONFIG = {
@@ -36,26 +27,45 @@ SEMANTIC_SEARCH_CONFIG = {
     'max_threshold': 0.95      # Maximum allowed threshold (95%)
 }
 
+# GitHub API configuration
+GITHUB_API_BASE_URL = "https://api.github.com"
+GITHUB_TOKEN = None  # Will be set from environment or config
+GITHUB_DEFAULT_OWNER = "Golgoroth22"  # Default repository owner
+
+# Local Git configuration
+GIT_DEFAULT_REPO_PATH = "/Users/falin/AndroidStudioProjects/AI-with-Love"
+
+def set_github_token(token):
+    """Set GitHub Personal Access Token"""
+    global GITHUB_TOKEN
+    GITHUB_TOKEN = token
+
+def github_api_request(endpoint, method='GET', data=None):
+    """Make authenticated request to GitHub API"""
+    if not GITHUB_TOKEN:
+        raise ValueError("GitHub token not configured")
+
+    url = f"{GITHUB_API_BASE_URL}{endpoint}"
+    headers = {
+        'Authorization': f'Bearer {GITHUB_TOKEN}',
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28'
+    }
+
+    req = urllib.request.Request(url, headers=headers, method=method)
+    if data:
+        req.data = json.dumps(data).encode('utf-8')
+        req.add_header('Content-Type', 'application/json')
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8')
+        raise Exception(f"GitHub API error {e.code}: {error_body}")
+
 def init_database():
     """Initialize SQLite database"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS saved_jokes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            joke_api_id INTEGER,
-            category TEXT,
-            type TEXT,
-            joke_text TEXT,
-            setup TEXT,
-            delivery TEXT,
-            saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    conn.commit()
-    conn.close()
-    print(f"📦 Database initialized: {DB_PATH}")
-
     # Initialize embeddings database
     conn = sqlite3.connect(EMBEDDINGS_DB_PATH)
     cursor = conn.cursor()
@@ -87,6 +97,112 @@ def init_database():
     conn.commit()
     conn.close()
     print(f"📦 Embeddings database initialized: {EMBEDDINGS_DB_PATH}")
+
+# Database helper utilities
+def _serialize_embedding(embedding):
+    """Convert embedding list to binary blob"""
+    import struct
+    return struct.pack(f'{len(embedding)}f', *embedding)
+
+def _deserialize_embedding(blob):
+    """Convert binary blob to embedding list"""
+    import struct
+    num_floats = len(blob) // 4
+    return list(struct.unpack(f'{num_floats}f', blob))
+
+def _cosine_similarity(vec1, vec2):
+    """Calculate cosine similarity between two vectors"""
+    import math
+    dot_product = sum(a * b for a, b in zip(vec1, vec2))
+    magnitude1 = math.sqrt(sum(a * a for a in vec1))
+    magnitude2 = math.sqrt(sum(b * b for b in vec2))
+
+    if magnitude1 == 0 or magnitude2 == 0:
+        return 0.0
+
+    return dot_product / (magnitude1 * magnitude2)
+
+class EmbeddingsDatabase:
+    """Helper class for embeddings database operations"""
+
+    @staticmethod
+    def save_document_with_embedding(content, embedding, source_file='manual_entry',
+                                     source_type='manual', chunk_index=0,
+                                     page_number=None, total_chunks=1, metadata='{}'):
+        """Save document with embedding to database"""
+        conn = sqlite3.connect(EMBEDDINGS_DB_PATH)
+        cursor = conn.cursor()
+
+        # Convert embedding to binary format
+        embedding_blob = _serialize_embedding(embedding)
+
+        cursor.execute('''
+            INSERT INTO documents
+            (content, embedding, source_file, source_type, chunk_index,
+             page_number, total_chunks, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (content, embedding_blob, source_file, source_type,
+              chunk_index, page_number, total_chunks, metadata))
+
+        doc_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+
+        return doc_id
+
+    @staticmethod
+    def search_similar_documents(query_embedding, limit=5):
+        """Search for similar documents using cosine similarity"""
+        conn = sqlite3.connect(EMBEDDINGS_DB_PATH)
+        cursor = conn.cursor()
+
+        # Fetch all documents
+        cursor.execute('''
+            SELECT id, content, embedding, source_file, source_type,
+                   chunk_index, page_number, total_chunks, metadata
+            FROM documents
+        ''')
+
+        results = []
+        query_emb_array = query_embedding
+
+        for row in cursor.fetchall():
+            doc_id, content, emb_blob, src_file, src_type, chunk_idx, page_num, total, meta = row
+
+            # Deserialize embedding
+            doc_embedding = _deserialize_embedding(emb_blob)
+
+            # Calculate cosine similarity
+            similarity = _cosine_similarity(query_emb_array, doc_embedding)
+
+            results.append({
+                'id': doc_id,
+                'content': content,
+                'similarity': similarity,
+                'source_file': src_file,
+                'source_type': src_type,
+                'chunk_index': chunk_idx,
+                'page_number': page_num,
+                'total_chunks': total,
+                'metadata': meta
+            })
+
+        conn.close()
+
+        # Sort by similarity descending
+        results.sort(key=lambda x: x['similarity'], reverse=True)
+
+        return results[:limit]
+
+    @staticmethod
+    def count_documents():
+        """Get total document count"""
+        conn = sqlite3.connect(EMBEDDINGS_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM documents')
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count
 
 class MCPServerHandler(BaseHTTPRequestHandler):
     
@@ -167,81 +283,6 @@ class MCPServerHandler(BaseHTTPRequestHandler):
     def handle_tools_list(self, request_id):
         """Return list of available tools"""
         tools = [
-            {
-                'name': 'get_joke',
-                'description': 'Get a random joke from JokeAPI',
-                'inputSchema': {
-                    'type': 'object',
-                    'properties': {
-                        'category': {
-                            'type': 'string',
-                            'description': 'Joke category: Any, Programming, Misc, Dark, Pun, Spooky, Christmas',
-                            'default': 'Any'
-                        },
-                        'blacklistFlags': {
-                            'type': 'string',
-                            'description': 'Comma-separated flags to blacklist: nsfw,religious,political,racist,sexist,explicit',
-                            'default': ''
-                        }
-                    }
-                }
-            },
-            {
-                'name': 'save_joke',
-                'description': 'Save a joke to the local database. Use this when user asks to save, remember, or add joke to favorites. Can save jokes in any language (Russian or English).',
-                'inputSchema': {
-                    'type': 'object',
-                    'properties': {
-                        'joke_api_id': {
-                            'type': 'integer',
-                            'description': 'Original joke ID from JokeAPI'
-                        },
-                        'category': {
-                            'type': 'string',
-                            'description': 'Joke category from JokeAPI'
-                        },
-                        'type': {
-                            'type': 'string',
-                            'description': 'Joke type: single or twopart'
-                        },
-                        'joke_text': {
-                            'type': 'string',
-                            'description': 'Full joke text for single type jokes (can be in any language)'
-                        },
-                        'setup': {
-                            'type': 'string',
-                            'description': 'Setup part for twopart jokes (can be in any language)'
-                        },
-                        'delivery': {
-                            'type': 'string',
-                            'description': 'Delivery/punchline for twopart jokes (can be in any language)'
-                        }
-                    },
-                    'required': ['type']
-                }
-            },
-            {
-                'name': 'get_saved_jokes',
-                'description': 'Get all saved jokes from the local database. Use this when user asks to show saved jokes, my jokes, or favorites.',
-                'inputSchema': {
-                    'type': 'object',
-                    'properties': {
-                        'limit': {
-                            'type': 'integer',
-                            'description': 'Maximum number of jokes to return (default: 50)',
-                            'default': 50
-                        }
-                    }
-                }
-            },
-            {
-                'name': 'run_tests',
-                'description': 'Run MCP server tests in an isolated Docker container. Use this when user asks to run tests, test the server, or check if everything works. Returns summary of test results.',
-                'inputSchema': {
-                    'type': 'object',
-                    'properties': {}
-                }
-            },
             {
                 'name': 'create_embedding',
                 'description': 'Generate embeddings for text using Ollama nomic-embed-text model',
@@ -402,6 +443,221 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                     },
                     'required': ['text', 'filename']
                 }
+            },
+            {
+                'name': 'get_repo',
+                'description': 'Get detailed information about a GitHub repository. Owner defaults to Golgoroth22 if not specified.',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'owner': {
+                            'type': 'string',
+                            'description': 'Repository owner (default: Golgoroth22)',
+                            'default': 'Golgoroth22'
+                        },
+                        'repo': {
+                            'type': 'string',
+                            'description': 'Repository name'
+                        }
+                    },
+                    'required': ['repo']
+                }
+            },
+            {
+                'name': 'search_code',
+                'description': 'Search for code across GitHub repositories',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'query': {
+                            'type': 'string',
+                            'description': 'Search query using GitHub search syntax'
+                        },
+                        'max_results': {
+                            'type': 'integer',
+                            'description': 'Maximum number of results to return (default: 5)',
+                            'default': 5
+                        }
+                    },
+                    'required': ['query']
+                }
+            },
+            {
+                'name': 'create_issue',
+                'description': 'Create a new issue in a GitHub repository. Owner defaults to Golgoroth22 if not specified.',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'owner': {
+                            'type': 'string',
+                            'description': 'Repository owner (default: Golgoroth22)',
+                            'default': 'Golgoroth22'
+                        },
+                        'repo': {
+                            'type': 'string',
+                            'description': 'Repository name'
+                        },
+                        'title': {
+                            'type': 'string',
+                            'description': 'Issue title'
+                        },
+                        'body': {
+                            'type': 'string',
+                            'description': 'Issue description (markdown supported)'
+                        }
+                    },
+                    'required': ['repo', 'title', 'body']
+                }
+            },
+            {
+                'name': 'list_issues',
+                'description': 'List issues from a GitHub repository. Owner defaults to Golgoroth22 if not specified.',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'owner': {
+                            'type': 'string',
+                            'description': 'Repository owner (default: Golgoroth22)',
+                            'default': 'Golgoroth22'
+                        },
+                        'repo': {
+                            'type': 'string',
+                            'description': 'Repository name'
+                        },
+                        'state': {
+                            'type': 'string',
+                            'description': 'Filter by state: open, closed, or all (default: open)',
+                            'default': 'open'
+                        }
+                    },
+                    'required': ['repo']
+                }
+            },
+            {
+                'name': 'list_commits',
+                'description': 'List commit history from a GitHub repository. Owner defaults to Golgoroth22 if not specified.',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'owner': {
+                            'type': 'string',
+                            'description': 'Repository owner (default: Golgoroth22)',
+                            'default': 'Golgoroth22'
+                        },
+                        'repo': {
+                            'type': 'string',
+                            'description': 'Repository name'
+                        },
+                        'max_results': {
+                            'type': 'integer',
+                            'description': 'Maximum number of commits to return (default: 10)',
+                            'default': 10
+                        }
+                    },
+                    'required': ['repo']
+                }
+            },
+            {
+                'name': 'get_repo_content',
+                'description': 'Get file contents or directory listing from a GitHub repository. Owner defaults to Golgoroth22 if not specified.',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'owner': {
+                            'type': 'string',
+                            'description': 'Repository owner (default: Golgoroth22)',
+                            'default': 'Golgoroth22'
+                        },
+                        'repo': {
+                            'type': 'string',
+                            'description': 'Repository name'
+                        },
+                        'path': {
+                            'type': 'string',
+                            'description': 'File or directory path in the repository'
+                        }
+                    },
+                    'required': ['repo', 'path']
+                }
+            },
+            {
+                'name': 'git_status',
+                'description': 'Get current git repository status: modified files, staged files, untracked files, current branch, ahead/behind remote',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'repo_path': {
+                            'type': 'string',
+                            'description': f'Path to git repository (default: {GIT_DEFAULT_REPO_PATH})',
+                            'default': GIT_DEFAULT_REPO_PATH
+                        }
+                    },
+                    'required': []
+                }
+            },
+            {
+                'name': 'git_branch',
+                'description': 'List all local and remote branches, showing which is currently active',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'repo_path': {
+                            'type': 'string',
+                            'description': f'Path to git repository (default: {GIT_DEFAULT_REPO_PATH})',
+                            'default': GIT_DEFAULT_REPO_PATH
+                        },
+                        'include_remote': {
+                            'type': 'boolean',
+                            'description': 'Include remote branches (default: true)',
+                            'default': True
+                        }
+                    },
+                    'required': []
+                }
+            },
+            {
+                'name': 'git_diff',
+                'description': 'Get diff for files (unstaged or staged changes)',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'repo_path': {
+                            'type': 'string',
+                            'description': f'Path to git repository (default: {GIT_DEFAULT_REPO_PATH})',
+                            'default': GIT_DEFAULT_REPO_PATH
+                        },
+                        'filepath': {
+                            'type': 'string',
+                            'description': 'Optional: specific file path to diff (omit for all changes)'
+                        },
+                        'staged': {
+                            'type': 'boolean',
+                            'description': 'If true, show staged changes; if false, show unstaged (default: false)',
+                            'default': False
+                        },
+                        'max_lines': {
+                            'type': 'integer',
+                            'description': 'Maximum lines of diff output (default: 500)',
+                            'default': 500
+                        }
+                    },
+                    'required': []
+                }
+            },
+            {
+                'name': 'git_pr_status',
+                'description': 'Check pull request status for current branch by combining local git info with GitHub API. Returns current branch, related PRs, and whether PRs are open.',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'repo_path': {
+                            'type': 'string',
+                            'description': f'Path to git repository (default: {GIT_DEFAULT_REPO_PATH})',
+                            'default': GIT_DEFAULT_REPO_PATH
+                        }
+                    },
+                    'required': []
+                }
             }
         ]
 
@@ -424,17 +680,9 @@ class MCPServerHandler(BaseHTTPRequestHandler):
             log_args['pdf_base64'] = f"{log_args['pdf_base64'][:100]}... ({len(log_args['pdf_base64'])} chars)"
 
         self.log(f"🔧 Calling tool: {tool_name} with args: {log_args}")
-        
+
         try:
-            if tool_name == 'get_joke':
-                result = self.tool_get_joke(arguments)
-            elif tool_name == 'save_joke':
-                result = self.tool_save_joke(arguments)
-            elif tool_name == 'get_saved_jokes':
-                result = self.tool_get_saved_jokes(arguments)
-            elif tool_name == 'run_tests':
-                result = self.tool_run_tests(arguments)
-            elif tool_name == 'create_embedding':
+            if tool_name == 'create_embedding':
                 result = self.tool_create_embedding(arguments)
             elif tool_name == 'save_document':
                 result = self.tool_save_document(arguments)
@@ -446,6 +694,26 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 result = self.tool_process_pdf(arguments)
             elif tool_name == 'process_text_chunks':
                 result = self.tool_process_text_chunks(arguments)
+            elif tool_name == 'get_repo':
+                result = self.tool_get_repo(arguments)
+            elif tool_name == 'search_code':
+                result = self.tool_search_code(arguments)
+            elif tool_name == 'create_issue':
+                result = self.tool_create_issue(arguments)
+            elif tool_name == 'list_issues':
+                result = self.tool_list_issues(arguments)
+            elif tool_name == 'list_commits':
+                result = self.tool_list_commits(arguments)
+            elif tool_name == 'get_repo_content':
+                result = self.tool_get_repo_content(arguments)
+            elif tool_name == 'git_status':
+                result = self.tool_git_status(arguments)
+            elif tool_name == 'git_branch':
+                result = self.tool_git_branch(arguments)
+            elif tool_name == 'git_diff':
+                result = self.tool_git_diff(arguments)
+            elif tool_name == 'git_pr_status':
+                result = self.tool_git_pr_status(arguments)
             else:
                 raise ValueError(f'Unknown tool: {tool_name}')
             
@@ -472,299 +740,6 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                     'code': -32000,
                     'message': str(e)
                 }
-            }
-    
-    def tool_get_joke(self, args):
-        """Get joke from JokeAPI"""
-        category = args.get('category', 'Any')
-        blacklist_flags = args.get('blacklistFlags', '')
-        
-        url = f'https://v2.jokeapi.dev/joke/{category}'
-        
-        params = {}
-        if blacklist_flags:
-            params['blacklistFlags'] = blacklist_flags
-        
-        if params:
-            url += '?' + urllib.parse.urlencode(params)
-        
-        self.log(f"🌐 Requesting JokeAPI: {url}")
-        
-        try:
-            with urllib.request.urlopen(url, timeout=10) as response:
-                data = json.loads(response.read().decode('utf-8'))
-            
-            if data.get('error'):
-                self.log(f"❌ JokeAPI error: {data.get('message')}")
-                return {
-                    'error': True,
-                    'message': data.get('message', 'Unknown error')
-                }
-            
-            joke_result = {
-                'category': data.get('category'),
-                'type': data.get('type'),
-                'id': data.get('id')
-            }
-            
-            if data.get('type') == 'single':
-                joke_result['joke'] = data.get('joke')
-                self.log(f"😄 Got single joke (ID: {data.get('id')})")
-            else:
-                joke_result['setup'] = data.get('setup')
-                joke_result['delivery'] = data.get('delivery')
-                self.log(f"😄 Got twopart joke (ID: {data.get('id')})")
-            
-            return joke_result
-            
-        except Exception as e:
-            self.log(f"❌ JokeAPI request failed: {str(e)}")
-            return {
-                'error': True,
-                'message': f'Failed to fetch joke: {str(e)}'
-            }
-    
-    def tool_save_joke(self, args):
-        """Save joke to SQLite database"""
-        joke_api_id = args.get('joke_api_id')
-        category = args.get('category', '')
-        joke_type = args.get('type', 'single')
-        joke_text = args.get('joke_text', '')
-        setup = args.get('setup', '')
-        delivery = args.get('delivery', '')
-        
-        self.log(f"💾 Saving joke: type={joke_type}, category={category}")
-        
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO saved_jokes (joke_api_id, category, type, joke_text, setup, delivery)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (joke_api_id, category, joke_type, joke_text, setup, delivery))
-            
-            joke_id = cursor.lastrowid
-            conn.commit()
-            conn.close()
-            
-            self.log(f"✅ Joke saved with ID: {joke_id}")
-            
-            return {
-                'success': True,
-                'message': 'Joke saved successfully',
-                'saved_joke_id': joke_id
-            }
-            
-        except Exception as e:
-            self.log(f"❌ Failed to save joke: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-    
-    def tool_get_saved_jokes(self, args):
-        """Get all saved jokes from database"""
-        limit = args.get('limit', 50)
-        
-        self.log(f"📖 Getting saved jokes (limit: {limit})")
-        
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT id, joke_api_id, category, type, joke_text, setup, delivery, saved_at
-                FROM saved_jokes
-                ORDER BY saved_at DESC
-                LIMIT ?
-            ''', (limit,))
-            
-            rows = cursor.fetchall()
-            conn.close()
-            
-            jokes = []
-            for row in rows:
-                joke = {
-                    'id': row['id'],
-                    'joke_api_id': row['joke_api_id'],
-                    'category': row['category'],
-                    'type': row['type'],
-                    'saved_at': row['saved_at']
-                }
-                
-                if row['type'] == 'single':
-                    joke['joke'] = row['joke_text']
-                else:
-                    joke['setup'] = row['setup']
-                    joke['delivery'] = row['delivery']
-                
-                jokes.append(joke)
-            
-            self.log(f"📖 Found {len(jokes)} saved jokes")
-            
-            return {
-                'success': True,
-                'count': len(jokes),
-                'jokes': jokes
-            }
-            
-        except Exception as e:
-            self.log(f"❌ Failed to get saved jokes: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e),
-                'jokes': []
-            }
-    
-    def tool_run_tests(self, args):
-        """Run tests in Docker container"""
-        import time
-        from datetime import datetime
-
-        start_time = time.time()
-        start_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-
-        self.log(f"🐳 Running tests in Docker container...")
-
-        # Build detailed server logs
-        server_logs = []
-        server_logs.append(f"[{start_timestamp}] Test execution initiated")
-        server_logs.append(f"[{start_timestamp}] Preparing Docker environment...")
-
-        try:
-            # Check if Docker is available
-            docker_check_start = time.time()
-            docker_check_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-            server_logs.append(f"[{docker_check_timestamp}] Checking Docker availability...")
-
-            # Run Docker container with tests
-            docker_start_time = time.time()
-            docker_start_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-            server_logs.append(f"[{docker_start_timestamp}] Launching Docker container 'mcp-server-tests'...")
-            server_logs.append(f"[{docker_start_timestamp}] Command: docker run --rm mcp-server-tests")
-
-            result = subprocess.run(
-                [
-                    'docker', 'run', '--rm',
-                    'mcp-server-tests'
-                ],
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
-
-            docker_end_time = time.time()
-            docker_end_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-            docker_execution_time = docker_end_time - docker_start_time
-
-            server_logs.append(f"[{docker_end_timestamp}] Docker container finished execution")
-            server_logs.append(f"[{docker_end_timestamp}] Container execution time: {docker_execution_time:.2f}s")
-            server_logs.append(f"[{docker_end_timestamp}] Return code: {result.returncode}")
-
-            execution_time = time.time() - start_time
-            output = result.stdout + result.stderr
-
-            server_logs.append(f"[{docker_end_timestamp}] Parsing test results...")
-
-            self.log(f"🐳 Docker execution completed with return code: {result.returncode}")
-
-            # Parse test results from output
-            # Look for patterns like "Ran X tests" and "FAILED (failures=Y, errors=Z)" or "OK"
-            tests_run = 0
-            failures = 0
-            errors = 0
-            success = False
-
-            # Extract "Ran X tests"
-            ran_match = re.search(r'Ran (\d+) test', output)
-            if ran_match:
-                tests_run = int(ran_match.group(1))
-
-            # Check if all tests passed
-            if 'OK' in output and result.returncode == 0:
-                success = True
-                passed = tests_run
-                server_logs.append(f"[{docker_end_timestamp}] ✅ All tests passed!")
-            else:
-                # Extract failures and errors
-                fail_match = re.search(r'failures=(\d+)', output)
-                error_match = re.search(r'errors=(\d+)', output)
-
-                if fail_match:
-                    failures = int(fail_match.group(1))
-                if error_match:
-                    errors = int(error_match.group(1))
-
-                passed = tests_run - failures - errors
-
-                if failures > 0:
-                    server_logs.append(f"[{docker_end_timestamp}] ❌ Found {failures} test failure(s)")
-                if errors > 0:
-                    server_logs.append(f"[{docker_end_timestamp}] ❌ Found {errors} test error(s)")
-
-            end_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-            server_logs.append(f"[{end_timestamp}] Test results: {passed} passed, {failures} failed, {errors} errors")
-            server_logs.append(f"[{end_timestamp}] Total execution time: {execution_time:.2f}s")
-            server_logs.append(f"[{end_timestamp}] Test execution completed successfully")
-
-            self.log(f"✅ Test results: {passed} passed, {failures} failed, {errors} errors (took {execution_time:.2f}s)")
-
-            return {
-                'success': success,
-                'tests_run': tests_run,
-                'passed': passed,
-                'failed': failures,
-                'errors': errors,
-                'execution_time': f"{execution_time:.2f}s",
-                'summary': f"{passed} passed, {failures} failed, {errors} errors out of {tests_run} tests",
-                'server_logs': '\n'.join(server_logs),
-                'output': output[-1000:] if len(output) > 1000 else output  # Last 1000 chars
-            }
-
-        except subprocess.TimeoutExpired:
-            timeout_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-            server_logs.append(f"[{timeout_timestamp}] ⏰ ERROR: Test execution timed out after 120 seconds")
-            server_logs.append(f"[{timeout_timestamp}] Docker container was forcefully terminated")
-            self.log(f"⏰ Test execution timed out after 120 seconds")
-            return {
-                'success': False,
-                'error': 'Test execution timed out after 120 seconds',
-                'tests_run': 0,
-                'passed': 0,
-                'failed': 0,
-                'errors': 0,
-                'server_logs': '\n'.join(server_logs)
-            }
-        except FileNotFoundError:
-            error_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-            server_logs.append(f"[{error_timestamp}] ❌ ERROR: Docker command not found")
-            server_logs.append(f"[{error_timestamp}] Please ensure Docker is installed and running")
-            server_logs.append(f"[{error_timestamp}] Check: 'docker --version' and 'docker ps'")
-            self.log(f"❌ Docker not found or not running")
-            return {
-                'success': False,
-                'error': 'Docker is not installed or not running',
-                'tests_run': 0,
-                'passed': 0,
-                'failed': 0,
-                'errors': 0,
-                'server_logs': '\n'.join(server_logs)
-            }
-        except Exception as e:
-            error_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-            server_logs.append(f"[{error_timestamp}] ❌ FATAL ERROR: {str(e)}")
-            server_logs.append(f"[{error_timestamp}] Exception type: {type(e).__name__}")
-            self.log(f"❌ Failed to run tests: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e),
-                'tests_run': 0,
-                'passed': 0,
-                'failed': 0,
-                'errors': 0,
-                'server_logs': '\n'.join(server_logs)
             }
 
     def tool_create_embedding(self, args):
@@ -821,164 +796,113 @@ class MCPServerHandler(BaseHTTPRequestHandler):
             }
 
     def tool_save_document(self, args):
-        """Save document with embedding to database (proxied to remote server)"""
-        content = args.get('content', '')
+        """Save document with embedding to local database"""
+        content = args.get('content', '').strip()
+        source_file = args.get('source_file', 'manual_entry')
+        source_type = args.get('source_type', 'manual')
+        chunk_index = args.get('chunk_index', 0)
+        page_number = args.get('page_number')
+        total_chunks = args.get('total_chunks', 1)
+        metadata = args.get('metadata', '{}')
 
         if not content:
             return {
                 'success': False,
-                'error': 'Content is required'
+                'error': 'Content is required',
+                'document_id': None
             }
 
-        self.log(f"💾 Proxying save_document to remote server: {content[:50]}...")
+        self.log(f"💾 Saving document locally: {content[:50]}...")
 
         try:
-            # Prepare JSON-RPC request for remote MCP server
-            request_data = {
-                'jsonrpc': '2.0',
-                'id': 1,
-                'method': 'tools/call',
-                'params': {
-                    'name': 'save_document',
-                    'arguments': args
-                }
-            }
+            # 1. Generate embedding using local Ollama
+            embedding_result = self.tool_create_embedding({'text': content})
 
-            # Call remote MCP server
-            self.log(f"📡 Calling remote MCP server at {REMOTE_MCP_SERVER['url']}")
-
-            req = urllib.request.Request(
-                REMOTE_MCP_SERVER['url'],
-                data=json.dumps(request_data).encode('utf-8'),
-                headers={
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
+            if not embedding_result.get('success'):
+                return {
+                    'success': False,
+                    'error': f"Failed to generate embedding: {embedding_result.get('error')}",
+                    'document_id': None
                 }
+
+            embedding = embedding_result['embedding']
+
+            # 2. Save to local database
+            doc_id = EmbeddingsDatabase.save_document_with_embedding(
+                content=content,
+                embedding=embedding,
+                source_file=source_file,
+                source_type=source_type,
+                chunk_index=chunk_index,
+                page_number=page_number,
+                total_chunks=total_chunks,
+                metadata=metadata
             )
 
-            # Increased timeout to 120s for operations that involve embedding generation
-            with urllib.request.urlopen(req, timeout=120) as response:
-                remote_response = json.loads(response.read().decode('utf-8'))
+            self.log(f"✅ Document saved with ID: {doc_id}")
 
-            self.log(f"✅ Received response from remote server")
-
-            # Parse the response
-            if 'error' in remote_response:
-                error_msg = remote_response['error'].get('message', 'Unknown error')
-                self.log(f"❌ Remote server error: {error_msg}")
-                return {
-                    'success': False,
-                    'error': f'Remote server error: {error_msg}'
-                }
-
-            # Extract the result from MCP response format
-            result_content = remote_response.get('result', {}).get('content', [])
-
-            if not result_content:
-                self.log(f"⚠️ No content in remote response")
-                return {
-                    'success': False,
-                    'error': 'No response from remote server'
-                }
-
-            # Parse the text content (which should be JSON)
-            result_text = result_content[0].get('text', '{}')
-            save_result = json.loads(result_text)
-
-            return save_result
-
-        except urllib.error.URLError as e:
-            self.log(f"❌ Network error connecting to remote server: {str(e)}")
             return {
-                'success': False,
-                'error': f'Cannot connect to remote server: {str(e)}'
+                'success': True,
+                'document_id': doc_id,
+                'message': 'Document saved successfully with embedding',
+                'embedding_dimensions': len(embedding)
             }
+
         except Exception as e:
             self.log(f"❌ Failed to save document: {str(e)}")
+            import traceback
+            self.log(f"❌ Traceback: {traceback.format_exc()}")
             return {
                 'success': False,
-                'error': f'Failed to save document: {str(e)}'
+                'error': f'Failed to save document: {str(e)}',
+                'document_id': None
             }
 
     def tool_search_similar(self, args):
-        """Search for similar documents using cosine similarity (proxied to remote server)"""
-        query = args.get('query', '')
+        """Search for similar documents using cosine similarity in local database"""
+        query = args.get('query', '').strip()
         limit = args.get('limit', 5)
 
         if not query:
             return {
                 'success': False,
-                'error': 'Query is required'
-            }
-
-        self.log(f"🔍 Proxying search_similar to remote server: {query[:50]}...")
-
-        try:
-            # Prepare JSON-RPC request for remote MCP server
-            request_data = {
-                'jsonrpc': '2.0',
-                'id': 1,
-                'method': 'tools/call',
-                'params': {
-                    'name': 'search_similar',
-                    'arguments': args
-                }
-            }
-
-            # Call remote MCP server
-            self.log(f"📡 Calling remote MCP server at {REMOTE_MCP_SERVER['url']}")
-
-            req = urllib.request.Request(
-                REMOTE_MCP_SERVER['url'],
-                data=json.dumps(request_data).encode('utf-8'),
-                headers={
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-            )
-
-            # Increased timeout to 120s for operations that involve embedding generation
-            with urllib.request.urlopen(req, timeout=120) as response:
-                remote_response = json.loads(response.read().decode('utf-8'))
-
-            self.log(f"✅ Received response from remote server")
-
-            # Parse the response
-            if 'error' in remote_response:
-                error_msg = remote_response['error'].get('message', 'Unknown error')
-                self.log(f"❌ Remote server error: {error_msg}")
-                return {
-                    'success': False,
-                    'error': f'Remote server error: {error_msg}',
-                    'documents': []
-                }
-
-            # Extract the result from MCP response format
-            result_content = remote_response.get('result', {}).get('content', [])
-
-            if not result_content:
-                self.log(f"⚠️ No content in remote response")
-                return {
-                    'success': True,
-                    'count': 0,
-                    'documents': []
-                }
-
-            # Parse the text content (which should be JSON)
-            result_text = result_content[0].get('text', '{}')
-            search_result = json.loads(result_text)
-
-            return search_result
-
-        except urllib.error.URLError as e:
-            self.log(f"❌ Network error connecting to remote server: {str(e)}")
-            return {
-                'success': False,
-                'error': f'Cannot connect to remote server: {str(e)}',
+                'error': 'Query is required',
                 'documents': []
             }
+
+        self.log(f"🔍 Searching locally for: {query[:50]}... (limit={limit})")
+
+        try:
+            # 1. Generate query embedding
+            embedding_result = self.tool_create_embedding({'text': query})
+
+            if not embedding_result.get('success'):
+                return {
+                    'success': False,
+                    'error': f"Failed to generate query embedding: {embedding_result.get('error')}",
+                    'documents': []
+                }
+
+            query_embedding = embedding_result['embedding']
+
+            # 2. Search database
+            results = EmbeddingsDatabase.search_similar_documents(
+                query_embedding=query_embedding,
+                limit=limit
+            )
+
+            self.log(f"✅ Found {len(results)} similar documents")
+
+            return {
+                'success': True,
+                'count': len(results),
+                'documents': results
+            }
+
         except Exception as e:
-            self.log(f"❌ Failed to search documents: {str(e)}")
+            self.log(f"❌ Search failed: {str(e)}")
+            import traceback
+            self.log(f"❌ Traceback: {traceback.format_exc()}")
             return {
                 'success': False,
                 'error': f'Failed to search documents: {str(e)}',
@@ -986,8 +910,8 @@ class MCPServerHandler(BaseHTTPRequestHandler):
             }
 
     def tool_semantic_search(self, args):
-        """Search for relevant chunks from remote MCP server with threshold filtering"""
-        query = args.get('query', '')
+        """Search for relevant chunks from local database with threshold filtering"""
+        query = args.get('query', '').strip()
         limit = args.get('limit', 3)
         threshold = args.get('threshold', SEMANTIC_SEARCH_CONFIG['default_threshold'])
         compare_mode = args.get('compare_mode', False)
@@ -995,84 +919,31 @@ class MCPServerHandler(BaseHTTPRequestHandler):
         if not query:
             return {
                 'success': False,
-                'error': 'Query is required'
+                'error': 'Query is required',
+                'documents': []
             }
 
         # Validate and clamp threshold
         threshold = max(SEMANTIC_SEARCH_CONFIG['min_threshold'],
                        min(SEMANTIC_SEARCH_CONFIG['max_threshold'], threshold))
 
-        self.log(f"🌐 Semantic search on remote server: {query[:50]}... (threshold={threshold:.2f}, compare_mode={compare_mode})")
+        self.log(f"🌐 Semantic search locally: {query[:50]}... (threshold={threshold:.2f}, compare_mode={compare_mode})")
 
         try:
-            # STAGE 1: Get raw results from remote server
-            # Request limit * 2 documents to have buffer for filtering
-            request_limit = limit * 2
+            # Get raw search results (request more to have buffer for filtering)
+            raw_results = self.tool_search_similar({
+                'query': query,
+                'limit': limit * 2
+            })
 
-            request_data = {
-                'jsonrpc': '2.0',
-                'id': 1,
-                'method': 'tools/call',
-                'params': {
-                    'name': 'search_similar',
-                    'arguments': {
-                        'query': query,
-                        'limit': request_limit
-                    }
-                }
-            }
+            if not raw_results.get('success'):
+                return raw_results
 
-            # Call remote MCP server
-            self.log(f"📡 Calling remote MCP server at {REMOTE_MCP_SERVER['url']} (requesting {request_limit} docs)")
+            documents = raw_results.get('documents', [])
 
-            req = urllib.request.Request(
-                REMOTE_MCP_SERVER['url'],
-                data=json.dumps(request_data).encode('utf-8'),
-                headers={
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-            )
+            self.log(f"🔍 Retrieved {len(documents)} documents from local database")
 
-            # Increased timeout to 120s for search operations that involve embedding generation
-            with urllib.request.urlopen(req, timeout=120) as response:
-                remote_response = json.loads(response.read().decode('utf-8'))
-
-            self.log(f"✅ Received response from remote server")
-
-            # Parse the response
-            if 'error' in remote_response:
-                error_msg = remote_response['error'].get('message', 'Unknown error')
-                self.log(f"❌ Remote server error: {error_msg}")
-                return {
-                    'success': False,
-                    'error': f'Remote server error: {error_msg}',
-                    'documents': []
-                }
-
-            # Extract the result from MCP response format
-            result_content = remote_response.get('result', {}).get('content', [])
-
-            if not result_content:
-                self.log(f"⚠️ No content in remote response")
-                return {
-                    'success': True,
-                    'count': 0,
-                    'documents': [],
-                    'threshold': threshold,
-                    'filtered': True,
-                    'message': 'No documents found on remote server'
-                }
-
-            # Parse the text content (which should be JSON)
-            result_text = result_content[0].get('text', '{}')
-            search_result = json.loads(result_text)
-
-            documents = search_result.get('documents', [])
-
-            self.log(f"🔍 Received {len(documents)} documents from remote server")
-
-            # STAGE 2: Apply threshold filtering and add citations
+            # Apply threshold filtering and add citations
             filtered_documents = []
             for doc in documents:
                 if doc.get('similarity', 0) >= threshold:
@@ -1112,7 +983,7 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                     word = 'фрагментов'
                 sources_summary.append(f"{src} ({count} {word})")
 
-            # STAGE 3: Return based on mode
+            # Return based on mode
             if compare_mode:
                 # Return both unfiltered and filtered for comparison
                 unfiltered_docs = documents[:limit]
@@ -1127,7 +998,7 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                         'count': len(filtered_documents),
                         'documents': filtered_documents
                     },
-                    'source': 'remote_mcp_server',
+                    'source': 'local_database',
                     'sources_summary': sources_summary
                 }
             else:
@@ -1138,29 +1009,26 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                     'documents': filtered_documents,
                     'threshold': threshold,
                     'isFiltered': True,
-                    'source': 'remote_mcp_server',
+                    'source': 'local_database',
                     'sources_summary': sources_summary
                 }
 
-        except urllib.error.URLError as e:
-            self.log(f"❌ Network error connecting to remote server: {str(e)}")
-            return {
-                'success': False,
-                'error': f'Cannot connect to remote server: {str(e)}',
-                'documents': []
-            }
         except Exception as e:
-            self.log(f"❌ Failed to search remote server: {str(e)}")
+            self.log(f"❌ Semantic search failed: {str(e)}")
+            import traceback
+            self.log(f"❌ Traceback: {traceback.format_exc()}")
             return {
                 'success': False,
-                'error': f'Failed to search remote server: {str(e)}',
+                'error': f'Failed to search: {str(e)}',
                 'documents': []
             }
 
     def tool_process_pdf(self, args):
-        """Process PDF: extract text, chunk, and save with embeddings (proxied to remote server)"""
+        """Process PDF: extract text, chunk, and save with embeddings locally"""
         pdf_base64 = args.get('pdf_base64', '')
         filename = args.get('filename', 'document.pdf')
+        chunk_size = args.get('chunk_size', 1000)
+        chunk_overlap = args.get('chunk_overlap', 200)
 
         if not pdf_base64:
             return {
@@ -1168,86 +1036,44 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 'error': 'PDF base64 content is required'
             }
 
-        self.log(f"📄 Proxying process_pdf to remote server: {filename}")
+        self.log(f"📄 Processing PDF locally: {filename}")
 
         try:
-            # Prepare JSON-RPC request for remote MCP server
-            request_data = {
-                'jsonrpc': '2.0',
-                'id': 1,
-                'method': 'tools/call',
-                'params': {
-                    'name': 'process_pdf',
-                    'arguments': args
-                }
-            }
+            import base64
+            import io
 
-            # Call remote MCP server with longer timeout (PDF processing can take time)
-            self.log(f"📡 Calling remote MCP server at {REMOTE_MCP_SERVER['url']}")
-            self.log(f"⏳ This may take a while for large PDFs...")
+            # Decode base64
+            pdf_bytes = base64.b64decode(pdf_base64)
 
-            req = urllib.request.Request(
-                REMOTE_MCP_SERVER['url'],
-                data=json.dumps(request_data).encode('utf-8'),
-                headers={
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-            )
+            # Extract text using pdfplumber (if available)
+            try:
+                import pdfplumber
 
-            # Use 120 second timeout for PDF processing (can be slow for large files)
-            with urllib.request.urlopen(req, timeout=120) as response:
-                remote_response = json.loads(response.read().decode('utf-8'))
+                with io.BytesIO(pdf_bytes) as pdf_file:
+                    with pdfplumber.open(pdf_file) as pdf:
+                        text_parts = []
+                        for page in pdf.pages:
+                            text_parts.append(page.extract_text() or '')
 
-            self.log(f"✅ Received response from remote server")
+                        extracted_text = '\n\n'.join(text_parts)
 
-            # Parse the response
-            if 'error' in remote_response:
-                error_msg = remote_response['error'].get('message', 'Unknown error')
-                self.log(f"❌ Remote server error: {error_msg}")
+                self.log(f"✅ Extracted {len(extracted_text)} characters from PDF")
+
+                # Process extracted text
+                return self.tool_process_text_chunks({
+                    'text': extracted_text,
+                    'filename': filename,
+                    'chunk_size': chunk_size,
+                    'chunk_overlap': chunk_overlap
+                })
+
+            except ImportError:
+                self.log(f"❌ pdfplumber not installed")
                 return {
                     'success': False,
-                    'error': f'Remote server error: {error_msg}'
+                    'error': 'pdfplumber not installed. Use process_text_chunks with client-side extraction instead.'
                 }
 
-            # Extract the result from MCP response format
-            result_content = remote_response.get('result', {}).get('content', [])
-
-            if not result_content:
-                self.log(f"⚠️ No content in remote response")
-                return {
-                    'success': False,
-                    'error': 'No response from remote server'
-                }
-
-            # Parse the text content (which should be JSON)
-            result_text = result_content[0].get('text', '{}')
-            pdf_result = json.loads(result_text)
-
-            chunks_saved = pdf_result.get('chunks_saved', 0)
-            self.log(f"🎉 PDF processed on remote server: {chunks_saved} chunks saved")
-
-            return pdf_result
-
-        except urllib.error.URLError as e:
-            self.log(f"❌ Network error connecting to remote server: {str(e)}")
-            return {
-                'success': False,
-                'error': f'Cannot connect to remote server: {str(e)}'
-            }
-        except Exception as e:
-            self.log(f"❌ Failed to process PDF: {str(e)}")
-            return {
-                'success': False,
-                'error': f'Failed to process PDF: {str(e)}'
-            }
-
-        except ImportError:
-            self.log(f"❌ pdfplumber not installed")
-            return {
-                'success': False,
-                'error': 'PDF processing library not installed. Please install pdfplumber.'
-            }
         except Exception as e:
             self.log(f"❌ Failed to process PDF: {str(e)}")
             import traceback
@@ -1258,89 +1084,616 @@ class MCPServerHandler(BaseHTTPRequestHandler):
             }
 
     def tool_process_text_chunks(self, args):
-        """Process extracted text: chunk and save with embeddings (proxied to remote server)"""
-        text = args.get('text', '')
+        """Process extracted text: chunk and save with embeddings locally (with parallel processing)"""
+        text = args.get('text', '').strip()
         filename = args.get('filename', 'document.txt')
+        chunk_size = args.get('chunk_size', 1000)
+        chunk_overlap = args.get('chunk_overlap', 200)
+        max_workers = args.get('max_workers', 4)  # Number of parallel threads
 
         if not text:
             return {
                 'success': False,
-                'error': 'Text content is required'
+                'error': 'Text content is required',
+                'chunks_saved': 0
             }
 
-        self.log(f"📝 Proxying process_text_chunks to remote server: {filename}")
+        # Determine source type from filename
+        source_type = 'txt'
+        if filename.endswith('.pdf'):
+            source_type = 'pdf'
+        elif filename.endswith('.md'):
+            source_type = 'markdown'
+
+        self.log(f"📝 Processing text chunks locally: {filename} (type={source_type})")
         self.log(f"📊 Text length: {len(text)} characters")
+        self.log(f"⚡ Using {max_workers} parallel workers")
 
         try:
-            # Prepare JSON-RPC request for remote MCP server
-            request_data = {
-                'jsonrpc': '2.0',
-                'id': 1,
-                'method': 'tools/call',
-                'params': {
-                    'name': 'process_text_chunks',
-                    'arguments': args
+            import time
+            start_time = time.time()
+
+            # 1. Chunk the text
+            chunks = self._chunk_text(text, chunk_size, chunk_overlap)
+            total_chunks = len(chunks)
+
+            self.log(f"✂️ Created {total_chunks} chunks")
+
+            # 2. Process chunks in parallel
+            saved_count = 0
+            failed_count = 0
+            lock = threading.Lock()  # For thread-safe counter updates
+
+            def process_chunk(chunk_data):
+                """Process a single chunk (generate embedding and save)"""
+                i, chunk_content = chunk_data
+                try:
+                    # Generate embedding
+                    emb_result = self.tool_create_embedding({'text': chunk_content})
+
+                    if not emb_result.get('success'):
+                        self.log(f"⚠️ Failed to embed chunk {i+1}/{total_chunks}: {emb_result.get('error')}")
+                        return False, i
+
+                    embedding = emb_result['embedding']
+
+                    # Save to database
+                    doc_id = EmbeddingsDatabase.save_document_with_embedding(
+                        content=chunk_content,
+                        embedding=embedding,
+                        source_file=filename,
+                        source_type=source_type,
+                        chunk_index=i,
+                        page_number=None,
+                        total_chunks=total_chunks,
+                        metadata='{}'
+                    )
+
+                    return True, i
+
+                except Exception as e:
+                    self.log(f"❌ Error processing chunk {i+1}: {str(e)}")
+                    return False, i
+
+            # Use ThreadPoolExecutor for parallel processing
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tasks
+                futures = {
+                    executor.submit(process_chunk, (i, chunk)): i
+                    for i, chunk in enumerate(chunks)
                 }
-            }
 
-            # Call remote MCP server with longer timeout (text processing can take time)
-            self.log(f"📡 Calling remote MCP server at {REMOTE_MCP_SERVER['url']}")
+                # Process completed tasks
+                for future in as_completed(futures):
+                    success, chunk_index = future.result()
 
-            req = urllib.request.Request(
-                REMOTE_MCP_SERVER['url'],
-                data=json.dumps(request_data).encode('utf-8'),
-                headers={
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-            )
+                    with lock:
+                        if success:
+                            saved_count += 1
+                        else:
+                            failed_count += 1
 
-            # Use 300 second timeout for text chunking and embedding generation
-            with urllib.request.urlopen(req, timeout=300) as response:
-                remote_response = json.loads(response.read().decode('utf-8'))
+                        # Log progress every 10 chunks or on last chunk
+                        if (saved_count + failed_count) % 10 == 0 or (saved_count + failed_count) == total_chunks:
+                            self.log(f"💾 Progress: {saved_count}/{total_chunks} chunks saved...")
 
-            self.log(f"✅ Received response from remote server")
+            processing_time = time.time() - start_time
 
-            # Parse the response
-            if 'error' in remote_response:
-                error_msg = remote_response['error'].get('message', 'Unknown error')
-                self.log(f"❌ Remote server error: {error_msg}")
-                return {
-                    'success': False,
-                    'error': f'Remote server error: {error_msg}'
-                }
+            self.log(f"🎉 Processing complete: {saved_count} chunks saved, {failed_count} failed in {processing_time:.2f}s")
+            self.log(f"⚡ Average speed: {processing_time/total_chunks:.2f}s per chunk")
 
-            # Extract the result from MCP response format
-            result_content = remote_response.get('result', {}).get('content', [])
-
-            if not result_content:
-                self.log(f"⚠️ No content in remote response")
-                return {
-                    'success': False,
-                    'error': 'No response from remote server'
-                }
-
-            # Parse the text content (which should be JSON)
-            result_text = result_content[0].get('text', '{}')
-            text_result = json.loads(result_text)
-
-            chunks_saved = text_result.get('chunks_saved', 0)
-            self.log(f"🎉 Text processed on remote server: {chunks_saved} chunks saved")
-
-            return text_result
-
-        except urllib.error.URLError as e:
-            self.log(f"❌ Network error connecting to remote server: {str(e)}")
             return {
-                'success': False,
-                'error': f'Cannot connect to remote server: {str(e)}'
+                'success': True,
+                'chunks_saved': saved_count,
+                'chunks_failed': failed_count,
+                'total_characters': len(text),
+                'filename': filename,
+                'chunk_size': chunk_size,
+                'chunk_overlap': chunk_overlap,
+                'processing_time_seconds': round(processing_time, 2),
+                'average_time_per_chunk': round(processing_time / total_chunks, 2)
             }
+
         except Exception as e:
             self.log(f"❌ Failed to process text: {str(e)}")
+            import traceback
+            self.log(f"❌ Traceback: {traceback.format_exc()}")
             return {
                 'success': False,
-                'error': f'Failed to process text: {str(e)}'
+                'error': f'Failed to process text: {str(e)}',
+                'chunks_saved': 0
             }
+
+    def tool_get_repo(self, args):
+        """Get repository information from GitHub"""
+        owner = args.get('owner', GITHUB_DEFAULT_OWNER)
+        repo = args.get('repo')
+
+        if not repo:
+            return {'success': False, 'error': 'repo is required'}
+
+        try:
+            data = github_api_request(f"/repos/{owner}/{repo}")
+            return {
+                'success': True,
+                'name': data['full_name'],
+                'description': data.get('description', ''),
+                'stars': data.get('stargazers_count', 0),
+                'forks': data.get('forks_count', 0),
+                'language': data.get('language', ''),
+                'topics': data.get('topics', []),
+                'url': data['html_url'],
+                'created_at': data.get('created_at', ''),
+                'updated_at': data.get('updated_at', '')
+            }
+        except Exception as e:
+            self.log(f"❌ GitHub API error: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_search_code(self, args):
+        """Search code on GitHub"""
+        query = args.get('query')
+        max_results = args.get('max_results', 5)
+
+        if not query:
+            return {'success': False, 'error': 'query is required'}
+
+        try:
+            # URL encode the query
+            encoded_query = urllib.parse.quote(query)
+            data = github_api_request(f"/search/code?q={encoded_query}&per_page={max_results}")
+
+            results = []
+            for item in data.get('items', [])[:max_results]:
+                results.append({
+                    'name': item['name'],
+                    'path': item['path'],
+                    'repository': item['repository']['full_name'],
+                    'url': item['html_url'],
+                    'score': item.get('score', 0)
+                })
+
+            return {
+                'success': True,
+                'total_count': data.get('total_count', 0),
+                'results': results
+            }
+        except Exception as e:
+            self.log(f"❌ GitHub API error: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_create_issue(self, args):
+        """Create a new GitHub issue"""
+        owner = args.get('owner', GITHUB_DEFAULT_OWNER)
+        repo = args.get('repo')
+        title = args.get('title')
+        body = args.get('body')
+
+        if not all([repo, title, body]):
+            return {'success': False, 'error': 'repo, title, and body are required'}
+
+        try:
+            data = github_api_request(
+                f"/repos/{owner}/{repo}/issues",
+                method='POST',
+                data={'title': title, 'body': body}
+            )
+            return {
+                'success': True,
+                'issue_number': data['number'],
+                'url': data['html_url'],
+                'state': data['state']
+            }
+        except Exception as e:
+            self.log(f"❌ GitHub API error: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_list_issues(self, args):
+        """List issues from a GitHub repository"""
+        owner = args.get('owner', GITHUB_DEFAULT_OWNER)
+        repo = args.get('repo')
+        state = args.get('state', 'open')
+
+        if not repo:
+            return {'success': False, 'error': 'repo is required'}
+
+        try:
+            data = github_api_request(f"/repos/{owner}/{repo}/issues?state={state}&per_page=10")
+
+            issues = []
+            for item in data:
+                # Skip pull requests (they appear in issues endpoint)
+                if 'pull_request' in item:
+                    continue
+
+                issues.append({
+                    'number': item['number'],
+                    'title': item['title'],
+                    'state': item['state'],
+                    'url': item['html_url'],
+                    'created_at': item['created_at'],
+                    'user': item['user']['login']
+                })
+
+            return {
+                'success': True,
+                'count': len(issues),
+                'issues': issues
+            }
+        except Exception as e:
+            self.log(f"❌ GitHub API error: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_list_commits(self, args):
+        """List commits from a GitHub repository"""
+        owner = args.get('owner', GITHUB_DEFAULT_OWNER)
+        repo = args.get('repo')
+        max_results = args.get('max_results', 10)
+
+        if not repo:
+            return {'success': False, 'error': 'repo is required'}
+
+        try:
+            data = github_api_request(f"/repos/{owner}/{repo}/commits?per_page={max_results}")
+
+            commits = []
+            for item in data[:max_results]:
+                commits.append({
+                    'sha': item['sha'][:7],
+                    'message': item['commit']['message'].split('\n')[0],
+                    'author': item['commit']['author']['name'],
+                    'date': item['commit']['author']['date'],
+                    'url': item['html_url']
+                })
+
+            return {
+                'success': True,
+                'count': len(commits),
+                'commits': commits
+            }
+        except Exception as e:
+            self.log(f"❌ GitHub API error: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_get_repo_content(self, args):
+        """Get file content or directory listing from GitHub"""
+        owner = args.get('owner', GITHUB_DEFAULT_OWNER)
+        repo = args.get('repo')
+        path = args.get('path')
+
+        if not all([repo, path]):
+            return {'success': False, 'error': 'repo and path are required'}
+
+        try:
+            data = github_api_request(f"/repos/{owner}/{repo}/contents/{path}")
+
+            # Check if it's a file or directory
+            if isinstance(data, list):
+                # Directory listing
+                items = []
+                for item in data:
+                    items.append({
+                        'name': item['name'],
+                        'path': item['path'],
+                        'type': item['type'],
+                        'size': item.get('size', 0)
+                    })
+                return {
+                    'success': True,
+                    'type': 'directory',
+                    'items': items
+                }
+            else:
+                # File content
+                import base64
+                content = base64.b64decode(data['content']).decode('utf-8')
+                return {
+                    'success': True,
+                    'type': 'file',
+                    'name': data['name'],
+                    'size': data['size'],
+                    'content': content,
+                    'url': data['html_url']
+                }
+        except Exception as e:
+            self.log(f"❌ GitHub API error: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_git_status(self, args):
+        """Get git status: modified, staged, untracked files"""
+        repo_path = args.get('repo_path', GIT_DEFAULT_REPO_PATH)
+
+        if not os.path.exists(repo_path):
+            return {'success': False, 'error': f'Repository not found: {repo_path}'}
+
+        try:
+            # Get status
+            result = subprocess.run(
+                ['git', 'status', '--porcelain', '--branch'],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            if result.returncode != 0:
+                return {'success': False, 'error': result.stderr}
+
+            # Parse output
+            lines = result.stdout.strip().split('\n')
+            branch_line = lines[0] if lines else ''
+            file_lines = lines[1:] if len(lines) > 1 else []
+
+            # Parse branch info
+            current_branch = 'unknown'
+            ahead_behind = {'ahead': 0, 'behind': 0}
+            if branch_line.startswith('## '):
+                branch_info = branch_line[3:]
+                if '...' in branch_info:
+                    local_remote = branch_info.split('...')
+                    current_branch = local_remote[0]
+                    # Parse ahead/behind from "[ahead 2, behind 1]" format
+                    if '[' in branch_info:
+                        ahead_behind_str = branch_info.split('[')[1].split(']')[0]
+                        if 'ahead' in ahead_behind_str:
+                            ahead_behind['ahead'] = int(ahead_behind_str.split('ahead')[1].split(',')[0].strip())
+                        if 'behind' in ahead_behind_str:
+                            ahead_behind['behind'] = int(ahead_behind_str.split('behind')[1].strip())
+                else:
+                    current_branch = branch_info
+
+            # Parse file statuses
+            modified = []
+            staged = []
+            untracked = []
+
+            for line in file_lines:
+                if not line.strip():
+                    continue
+                status = line[:2]
+                filepath = line[3:].strip()
+
+                if status == '??':
+                    untracked.append(filepath)
+                elif status[0] != ' ':
+                    staged.append({'file': filepath, 'status': status})
+                elif status[1] != ' ':
+                    modified.append({'file': filepath, 'status': status})
+
+            return {
+                'success': True,
+                'repo_path': repo_path,
+                'current_branch': current_branch,
+                'ahead': ahead_behind['ahead'],
+                'behind': ahead_behind['behind'],
+                'modified': modified,
+                'staged': staged,
+                'untracked': untracked,
+                'clean': len(modified) + len(staged) + len(untracked) == 0
+            }
+
+        except subprocess.TimeoutExpired:
+            return {'success': False, 'error': 'Git command timeout'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def tool_git_branch(self, args):
+        """List all local and remote branches"""
+        repo_path = args.get('repo_path', GIT_DEFAULT_REPO_PATH)
+        include_remote = args.get('include_remote', True)
+
+        if not os.path.exists(repo_path):
+            return {'success': False, 'error': f'Repository not found: {repo_path}'}
+
+        try:
+            # Get current branch
+            current_result = subprocess.run(
+                ['git', 'branch', '--show-current'],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            current_branch = current_result.stdout.strip()
+
+            # Get all branches
+            cmd = ['git', 'branch', '-a'] if include_remote else ['git', 'branch']
+            result = subprocess.run(
+                cmd,
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            if result.returncode != 0:
+                return {'success': False, 'error': result.stderr}
+
+            # Parse branches
+            local_branches = []
+            remote_branches = []
+
+            for line in result.stdout.strip().split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+
+                # Remove current branch marker
+                is_current = line.startswith('* ')
+                branch_name = line[2:] if is_current else line
+
+                if branch_name.startswith('remotes/'):
+                    remote_branches.append(branch_name[8:])  # Remove 'remotes/' prefix
+                else:
+                    local_branches.append({
+                        'name': branch_name,
+                        'current': is_current
+                    })
+
+            return {
+                'success': True,
+                'repo_path': repo_path,
+                'current_branch': current_branch,
+                'local_branches': local_branches,
+                'remote_branches': remote_branches if include_remote else []
+            }
+
+        except subprocess.TimeoutExpired:
+            return {'success': False, 'error': 'Git command timeout'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def tool_git_diff(self, args):
+        """Get diff for specified files or all changes"""
+        repo_path = args.get('repo_path', GIT_DEFAULT_REPO_PATH)
+        filepath = args.get('filepath')  # Optional: specific file
+        staged = args.get('staged', False)  # If True, show staged changes
+        max_lines = args.get('max_lines', 500)  # Limit output
+
+        if not os.path.exists(repo_path):
+            return {'success': False, 'error': f'Repository not found: {repo_path}'}
+
+        try:
+            cmd = ['git', 'diff']
+            if staged:
+                cmd.append('--cached')
+            if filepath:
+                cmd.append('--')
+                cmd.append(filepath)
+
+            result = subprocess.run(
+                cmd,
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            if result.returncode != 0:
+                return {'success': False, 'error': result.stderr}
+
+            diff_output = result.stdout
+
+            # Truncate if too long
+            lines = diff_output.split('\n')
+            truncated = False
+            if len(lines) > max_lines:
+                lines = lines[:max_lines]
+                truncated = True
+
+            return {
+                'success': True,
+                'repo_path': repo_path,
+                'filepath': filepath or 'all',
+                'staged': staged,
+                'diff': '\n'.join(lines),
+                'truncated': truncated,
+                'total_lines': len(diff_output.split('\n'))
+            }
+
+        except subprocess.TimeoutExpired:
+            return {'success': False, 'error': 'Git command timeout'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def tool_git_pr_status(self, args):
+        """
+        Check PR status by combining local git info with GitHub API
+        Returns: current branch, related PRs, and sync status
+        """
+        repo_path = args.get('repo_path', GIT_DEFAULT_REPO_PATH)
+
+        if not os.path.exists(repo_path):
+            return {'success': False, 'error': f'Repository not found: {repo_path}'}
+
+        try:
+            # 1. Get current branch
+            branch_result = subprocess.run(
+                ['git', 'branch', '--show-current'],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            current_branch = branch_result.stdout.strip()
+
+            # 2. Get remote URL to extract owner/repo
+            remote_result = subprocess.run(
+                ['git', 'config', '--get', 'remote.origin.url'],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            remote_url = remote_result.stdout.strip()
+
+            # Parse GitHub owner/repo from URL
+            # Handles: git@github.com:owner/repo.git or https://github.com/owner/repo.git
+            import re
+            match = re.search(r'github\.com[:/](.+?)/(.+?)(\.git)?$', remote_url)
+            if not match:
+                return {
+                    'success': False,
+                    'error': 'Could not parse GitHub repository from remote URL',
+                    'remote_url': remote_url
+                }
+
+            owner = match.group(1)
+            repo = match.group(2)
+
+            # 3. Query GitHub API for PRs
+            if not GITHUB_TOKEN:
+                return {
+                    'success': True,
+                    'current_branch': current_branch,
+                    'repo_name': f"{owner}/{repo}",
+                    'prs': [],
+                    'note': 'GitHub token not configured, cannot fetch PRs'
+                }
+
+            # Get PRs for this branch
+            try:
+                # List all PRs
+                all_prs = github_api_request(f"/repos/{owner}/{repo}/pulls?state=all&per_page=100")
+
+                # Filter PRs for current branch
+                branch_prs = []
+                for pr in all_prs:
+                    if pr['head']['ref'] == current_branch:
+                        branch_prs.append({
+                            'number': pr['number'],
+                            'title': pr['title'],
+                            'state': pr['state'],
+                            'url': pr['html_url'],
+                            'created_at': pr['created_at'],
+                            'updated_at': pr['updated_at'],
+                            'user': pr['user']['login'],
+                            'base': pr['base']['ref']  # Target branch
+                        })
+
+                return {
+                    'success': True,
+                    'current_branch': current_branch,
+                    'repo_name': f"{owner}/{repo}",
+                    'owner': owner,
+                    'repo': repo,
+                    'prs': branch_prs,
+                    'has_open_pr': any(pr['state'] == 'open' for pr in branch_prs)
+                }
+
+            except Exception as gh_error:
+                return {
+                    'success': True,
+                    'current_branch': current_branch,
+                    'repo_name': f"{owner}/{repo}",
+                    'prs': [],
+                    'error': f'Failed to fetch PRs from GitHub: {str(gh_error)}'
+                }
+
+        except subprocess.TimeoutExpired:
+            return {'success': False, 'error': 'Git command timeout'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
 
     def format_citation(self, doc, language='ru'):
         """
@@ -1412,50 +1765,52 @@ class MCPServerHandler(BaseHTTPRequestHandler):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         print(f'[{timestamp}] {format % args}')
 
-def run_server(host='0.0.0.0', port=8080):
+def run_server(host='0.0.0.0', port=8080, github_token=None):
     """Start MCP HTTP server"""
     init_database()
-    
+
+    # Set GitHub token if provided
+    if github_token:
+        set_github_token(github_token)
+        print(f'✅ GitHub token configured')
+
     server_address = (host, port)
     httpd = HTTPServer(server_address, MCPServerHandler)
-    
+
     print('=' * 70)
-    print('🚀 MCP HTTP Server with JokeAPI, Ollama & SQLite'.center(70))
+    print('🚀 MCP HTTP Server - Local Mode with Ollama & GitHub'.center(70))
     print('=' * 70)
     print(f'Server: http://{host}:{port}')
     print(f'From Android emulator: http://10.0.2.2:{port}')
     print(f'From real device: http://<your-computer-ip>:{port}')
     print()
-    print('Available Tools (10):')
-    print('  🎭 get_joke              - Get random jokes from JokeAPI')
-    print('  💾 save_joke             - Save a joke to local database')
-    print('  📖 get_saved_jokes       - Get all saved jokes from database')
-    print('  🧪 run_tests             - Run server tests in Docker container')
-    print('  🔮 create_embedding      - Generate embeddings using Ollama')
-    print('  📝 save_document         - Save document with embeddings')
-    print('  🔍 search_similar        - Search similar documents by embeddings')
-    print('  🌐 semantic_search       - Search relevant chunks from remote MCP server')
-    print('  📄 process_pdf           - Extract text from PDF, chunk, and index')
-    print('  📝 process_text_chunks   - Process extracted text into chunks')
+    print('Available Tools (12):')
+    print('  🔮 create_embedding      - Generate embeddings using local Ollama')
+    print('  📝 save_document         - Save document with embeddings to local DB')
+    print('  🔍 search_similar        - Search similar documents in local DB')
+    print('  🌐 semantic_search       - Search relevant chunks from local DB')
+    print('  📄 process_pdf           - Extract text from PDF, chunk, and index locally')
+    print('  📝 process_text_chunks   - Process extracted text into chunks locally')
+    print('  📦 get_repo              - Get GitHub repository information')
+    print('  🔎 search_code           - Search code on GitHub')
+    print('  🐛 create_issue          - Create GitHub issue')
+    print('  📋 list_issues           - List GitHub issues')
+    print('  📝 list_commits          - List repository commits')
+    print('  📄 get_repo_content      - Get file content from GitHub')
     print()
     print('Databases:')
-    print(f'  📦 Jokes: {DB_PATH}')
     print(f'  📦 Embeddings: {EMBEDDINGS_DB_PATH}')
-    print()
-    print('JokeAPI Integration:')
-    print('  • Base URL: https://v2.jokeapi.dev')
-    print('  • Categories: Any, Programming, Misc, Dark, Pun, Spooky, Christmas')
-    print('  • Safe mode support via blacklist flags')
     print()
     print('Ollama Integration:')
     print(f'  • API URL: {OLLAMA_API_URL}')
     print('  • Model: nomic-embed-text')
     print('  • Embedding dimensions: 768')
+    print('  • Status: Local Mac instance')
     print()
-    print('Docker Testing:')
-    print('  • Image: mcp-server-tests')
-    print('  • Timeout: 120 seconds')
-    print('  • Auto-cleanup: enabled')
+    print('Supported File Types:')
+    print('  • PDF (.pdf) - Client-side extraction via PDFBox')
+    print('  • Text (.txt) - Plain text files')
+    print('  • Markdown (.md) - Markdown files')
     print()
     print('Press Ctrl+C to stop')
     print('=' * 70)
@@ -1467,4 +1822,9 @@ def run_server(host='0.0.0.0', port=8080):
         print('\n\n🛑 Server stopped')
 
 if __name__ == '__main__':
-    run_server()
+    import sys
+    # Get port from command line (default: 8080)
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
+    # Get GitHub token from environment or use default from SecureData
+    github_token = os.environ.get('GITHUB_TOKEN', '')
+    run_server(port=port, github_token=github_token)

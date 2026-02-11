@@ -1,5 +1,8 @@
 package com.example.aiwithlove.ui.screen
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,12 +49,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import com.example.aiwithlove.data.model.Message
-import com.example.aiwithlove.viewmodel.OllamaViewModel
 import com.example.aiwithlove.viewmodel.DocumentUploadState
+import com.example.aiwithlove.viewmodel.OllamaViewModel
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,25 +71,27 @@ fun OllamaScreen(
     val documentUploadState by viewModel.documentUploadState.collectAsState()
 
     // Document file picker launcher (supports PDF and TXT)
-    val documentPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri?.let {
-            // Get filename from URI
-            val fileName = context.contentResolver.query(
-                uri,
-                arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
-                null,
-                null,
-                null
-            )?.use { cursor ->
-                cursor.moveToFirst()
-                cursor.getString(0)
-            } ?: "document"
+    val documentPickerLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenDocument()
+        ) { uri: Uri? ->
+            uri?.let {
+                // Get filename from URI
+                val fileName =
+                    context.contentResolver.query(
+                        uri,
+                        arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                        null,
+                        null,
+                        null
+                    )?.use { cursor ->
+                        cursor.moveToFirst()
+                        cursor.getString(0)
+                    } ?: "document"
 
-            viewModel.uploadDocument(uri, fileName, context)
+                viewModel.uploadDocument(uri, fileName, context)
+            }
         }
-    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -225,11 +227,11 @@ fun OllamaScreen(
                     enabled = !isLoading
                 )
 
-                // Document Attachment Button (PDF or TXT)
+                // Document Attachment Button (PDF, TXT, or MD)
                 IconButton(
                     onClick = {
                         if (!isLoading) {
-                            documentPickerLauncher.launch(arrayOf("application/pdf", "text/plain"))
+                            documentPickerLauncher.launch(arrayOf("application/pdf", "text/plain", "text/markdown"))
                         }
                     },
                     modifier =
@@ -247,7 +249,7 @@ fun OllamaScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = "Attach Document (PDF or TXT)",
+                        contentDescription = "Attach Document (PDF, TXT, or MD)",
                         tint =
                             if (!isLoading) {
                                 MaterialTheme.colorScheme.onSecondaryContainer
@@ -323,6 +325,7 @@ fun OllamaScreen(
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
+
                         is DocumentUploadState.Uploading -> {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp))
                             Text(
@@ -330,6 +333,7 @@ fun OllamaScreen(
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
+
                         is DocumentUploadState.Success -> {
                             Text(
                                 text = "✅",
@@ -341,6 +345,7 @@ fun OllamaScreen(
                                 color = MaterialTheme.colorScheme.onTertiaryContainer
                             )
                         }
+
                         is DocumentUploadState.Error -> {
                             Text(
                                 text = "❌",
@@ -352,6 +357,7 @@ fun OllamaScreen(
                                 color = MaterialTheme.colorScheme.error
                             )
                         }
+
                         else -> {}
                     }
                 }

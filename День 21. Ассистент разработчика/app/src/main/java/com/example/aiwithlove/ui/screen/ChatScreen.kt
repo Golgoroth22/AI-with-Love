@@ -326,73 +326,29 @@ fun MessageBubble(message: Message) {
                 lineHeight = 21.sp
             )
 
-            // Show attached log file if present
-            if (!message.isFromUser && message.attachedLogFile != null) {
-                val context = androidx.compose.ui.platform.LocalContext.current
-                val logFile = java.io.File(message.attachedLogFile)
-
-                if (logFile.exists()) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(top = 12.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
-                                .border(
-                                    width = 1.dp,
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .clickable {
-                                    // Open file with system file picker
-                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
-                                    val uri =
-                                        androidx.core.content.FileProvider.getUriForFile(
-                                            context,
-                                            "${context.packageName}.provider",
-                                            logFile
-                                        )
-                                    intent.setDataAndType(uri, "text/plain")
-                                    intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    try {
-                                        context.startActivity(android.content.Intent.createChooser(intent, "Open log file with"))
-                                    } catch (e: Exception) {
-                                        android.widget.Toast.makeText(
-                                            context,
-                                            "No app found to open this file",
-                                            android.widget.Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                }
-                                .padding(12.dp)
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "📄",
-                                fontSize = 20.sp
-                            )
-                            Column {
-                                Text(
-                                    text = logFile.name,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Text(
-                                    text = "${logFile.length() / 1024} KB • Tap to open",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-                    }
+            // Show help command badge for user messages
+            if (message.isFromUser && message.isHelpCommand && message.helpDocsFound != null) {
+                Row(
+                    modifier =
+                        Modifier
+                            .padding(top = 8.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "📚", fontSize = 14.sp)
+                    Text(
+                        text = "${message.helpDocsFound} docs found",
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
+
+            // Show attached log file if present
 
             if (!message.isFromUser && message.mcpToolInfo != null && message.mcpToolInfo.isNotEmpty()) {
                 Column(
@@ -410,6 +366,7 @@ fun MessageBubble(message: Message) {
                                     SimpleToolBadge(toolName = toolInfo.toolName)
                                 }
                             }
+
                             else -> {
                                 // Other tools: show simple badge
                                 SimpleToolBadge(toolName = toolInfo.toolName)
@@ -549,9 +506,10 @@ private fun SemanticSearchResultCard(
 ) {
     androidx.compose.material3.Card(
         modifier = modifier.fillMaxWidth(),
-        colors = androidx.compose.material3.CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-        )
+        colors =
+            androidx.compose.material3.CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            )
     ) {
         Column(
             modifier = Modifier.padding(6.dp),
@@ -702,8 +660,12 @@ private fun SimilarityScoreBar(similarity: Double) {
             fontWeight = FontWeight.Bold,
             color =
                 when {
-                    similarity >= 0.8 -> androidx.compose.ui.graphics.Color(0xFF4CAF50) // Green
-                    similarity >= 0.6 -> androidx.compose.ui.graphics.Color(0xFFFF9800) // Orange
+                    similarity >= 0.8 -> androidx.compose.ui.graphics.Color(0xFF4CAF50)
+
+                    // Green
+                    similarity >= 0.6 -> androidx.compose.ui.graphics.Color(0xFFFF9800)
+
+                    // Orange
                     else -> androidx.compose.ui.graphics.Color(0xFFF44336) // Red
                 }
         )
@@ -830,7 +792,11 @@ private fun ComparisonView(
  * Statistic item for comparison summary
  */
 @Composable
-private fun StatItem(label: String, value: String, color: androidx.compose.ui.graphics.Color) {
+private fun StatItem(
+    label: String,
+    value: String,
+    color: androidx.compose.ui.graphics.Color
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(1.dp)
@@ -895,17 +861,19 @@ private fun CompactDocumentItem(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(3.dp))
                 .background(
-                    if (isBelowThreshold)
+                    if (isBelowThreshold) {
                         androidx.compose.ui.graphics.Color(0xFFF44336).copy(alpha = 0.1f)
-                    else
+                    } else {
                         MaterialTheme.colorScheme.surface
+                    }
                 )
                 .border(
                     0.5.dp,
-                    if (isBelowThreshold)
+                    if (isBelowThreshold) {
                         androidx.compose.ui.graphics.Color(0xFFF44336).copy(alpha = 0.3f)
-                    else
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                    } else {
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                    },
                     RoundedCornerShape(3.dp)
                 )
                 .padding(4.dp),
@@ -916,10 +884,11 @@ private fun CompactDocumentItem(
             text = "#$index: ${document.content.take(25)}...",
             fontSize = 9.sp,
             color =
-                if (isBelowThreshold)
+                if (isBelowThreshold) {
                     androidx.compose.ui.graphics.Color(0xFFF44336)
-                else
-                    MaterialTheme.colorScheme.onSurface,
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
             modifier = Modifier.weight(1f)
         )
 
@@ -928,10 +897,11 @@ private fun CompactDocumentItem(
             fontSize = 9.sp,
             fontWeight = FontWeight.Bold,
             color =
-                if (isBelowThreshold)
+                if (isBelowThreshold) {
                     androidx.compose.ui.graphics.Color(0xFFF44336)
-                else
+                } else {
                     androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                }
         )
     }
 }
@@ -1043,7 +1013,11 @@ private fun ThresholdControlPanel(
  * Label for threshold guide
  */
 @Composable
-private fun ThresholdLabel(value: String, label: String, color: androidx.compose.ui.graphics.Color) {
+private fun ThresholdLabel(
+    value: String,
+    label: String,
+    color: androidx.compose.ui.graphics.Color
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)

@@ -13,7 +13,10 @@ data class Message(
     val isCompressionNotice: Boolean = false,
     val isCompressed: Boolean = false,
     val mcpToolInfo: List<McpToolInfo>? = null,
-    val attachedLogFile: String? = null
+    val attachedLogFile: String? = null,
+    // Day 21: Help command metadata
+    val isHelpCommand: Boolean = false,
+    val helpDocsFound: Int? = null
 )
 
 data class McpToolInfo(
@@ -71,7 +74,7 @@ data class SemanticSearchResult(
     val unfiltered: DocumentSet? = null,
     val filteredResults: DocumentSet? = null,
     val source: String? = null,
-    val sources_summary: List<String>? = null,  // Day 19: Citation summary
+    val sources_summary: List<String>? = null, // Day 19: Citation summary
     val error: String? = null,
     val message: String? = null
 )

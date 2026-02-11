@@ -20,7 +20,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 class OllamaViewModel(
-    private val mcpClient: McpClient
+    private val ollamaClient: com.example.aiwithlove.ollama.OllamaClient,
+    private val embeddingsRepository: com.example.aiwithlove.database.EmbeddingsRepository
 ) : ViewModel(),
     ILoggable {
 
@@ -46,67 +47,46 @@ class OllamaViewModel(
     fun sendMessage(userMessage: String) {
         if (userMessage.isBlank()) return
 
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             runAndCatch {
                 // Add user message
                 _messages.value = _messages.value + Message(text = userMessage, isFromUser = true)
                 _isLoading.value = true
 
-                logD("Sending message to save as document: $userMessage")
+                logD("Saving message as document to LOCAL database: $userMessage")
 
-                // Save document with embedding to MCP server
-                val saveResult =
-                    mcpClient.callTool(
-                        toolName = "save_document",
-                        arguments = mapOf("content" to userMessage)
+                // Generate embedding with LOCAL Ollama
+                val embedding = ollamaClient.generateEmbedding(userMessage)
+                logD("✅ Embedding generated: ${embedding.size} dimensions")
+
+                // Save to LOCAL database
+                val docId =
+                    embeddingsRepository.saveChunk(
+                        content = userMessage,
+                        embedding = embedding,
+                        sourceFile = "manual_entry",
+                        sourceType = "manual",
+                        chunkIndex = 0,
+                        totalChunks = 1
                     )
 
-                logD("Save document result: $saveResult")
+                logD("💾 Document saved to LOCAL database with ID: $docId")
 
-                // Parse the result to check success
-                val resultJson = Json.parseToJsonElement(saveResult).jsonObject
-                val contentArray = resultJson["content"]?.jsonArray
+                // Update documents count
+                updateDocumentsCount()
 
-                if (contentArray != null && contentArray.isNotEmpty()) {
-                    val firstContent = contentArray[0].jsonObject
-                    val textContent = firstContent["text"]?.jsonPrimitive?.content ?: ""
-
-                    if (textContent.isNotEmpty()) {
-                        val parsedResult = Json.parseToJsonElement(textContent).jsonObject
-                        val success = parsedResult["success"]?.jsonPrimitive?.content?.toBoolean() ?: false
-                        val docId = parsedResult["document_id"]?.jsonPrimitive?.content?.toIntOrNull()
-
-                        if (success && docId != null) {
-                            // Update documents count
-                            updateDocumentsCount()
-
-                            // Create assistant response
-                            val assistantMessage =
-                                buildString {
-                                    append("✅ Документ сохранен!\n\n")
-                                    append("📄 ID документа: $docId\n")
-                                    append("🔮 Эмбеддинг создан и сохранен в базу данных\n\n")
-                                    append("Теперь вы можете найти похожие документы по смысловому содержанию!")
-                                }
-
-                            // Display assistant response with typewriter effect
-                            displayTypewriterMessage(assistantMessage)
-                        } else {
-                            val errorMsg = parsedResult["error"]?.jsonPrimitive?.content ?: "Неизвестная ошибка"
-                            val assistantMessage = "❌ Ошибка при сохранении документа: $errorMsg"
-                            _messages.value = _messages.value + Message(text = assistantMessage, isFromUser = false)
-                            logE("Failed to save document: $errorMsg")
-                        }
-                    } else {
-                        val assistantMessage = "❌ Ошибка: получен пустой ответ от сервера"
-                        _messages.value = _messages.value + Message(text = assistantMessage, isFromUser = false)
-                        logE("Empty text content in save response")
+                // Create assistant response
+                val assistantMessage =
+                    buildString {
+                        append("✅ Документ сохранен!\n\n")
+                        append("📄 ID документа: $docId\n")
+                        append("🔮 Эмбеддинг создан локально через Ollama\n")
+                        append("💾 Сохранено в локальной базе данных\n\n")
+                        append("Теперь вы можете найти похожие документы по смысловому содержанию!")
                     }
-                } else {
-                    val assistantMessage = "❌ Ошибка: некорректный формат ответа от сервера"
-                    _messages.value = _messages.value + Message(text = assistantMessage, isFromUser = false)
-                    logE("Invalid response format from server")
-                }
+
+                // Display assistant response with typewriter effect
+                displayTypewriterMessage(assistantMessage)
             }.onFailure { error ->
                 val errorMessage = "❌ Произошла ошибка: ${error.message}"
                 _messages.value = _messages.value + Message(text = errorMessage, isFromUser = false)
@@ -117,7 +97,11 @@ class OllamaViewModel(
         }
     }
 
-    fun uploadPdf(uri: Uri, fileName: String, context: Context) {
+    fun uploadPdf(
+        uri: Uri,
+        fileName: String,
+        context: Context
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             runAndCatch {
                 // 1. Update state: Reading
@@ -127,89 +111,37 @@ class OllamaViewModel(
                 logD("Extracting text from PDF: $fileName")
 
                 // 2. Extract text from PDF locally using PDFBox
-                val extractedText = context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    try {
-                        // Initialize PDFBox for Android
-                        com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(context)
+                val extractedText =
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        try {
+                            // Initialize PDFBox for Android
+                            com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(context)
 
-                        // Load PDF document
-                        val document = com.tom_roush.pdfbox.pdmodel.PDDocument.load(inputStream)
-                        val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
+                            // Load PDF document
+                            val document = com.tom_roush.pdfbox.pdmodel.PDDocument.load(inputStream)
+                            val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
 
-                        // Extract text from all pages
-                        val text = stripper.getText(document)
-                        document.close()
+                            // Extract text from all pages
+                            val text = stripper.getText(document)
+                            document.close()
 
-                        text
-                    } catch (e: Exception) {
-                        logE("Error extracting PDF text", e)
-                        throw Exception("Failed to extract text from PDF: ${e.message}")
-                    }
-                } ?: throw Exception("Failed to open PDF file")
+                            text
+                        } catch (e: Exception) {
+                            logE("Error extracting PDF text", e)
+                            throw Exception("Failed to extract text from PDF: ${e.message}")
+                        }
+                    } ?: throw Exception("Failed to open PDF file")
 
                 val textLength = extractedText.length
-                logD("Extracted ${textLength} characters from PDF")
+                logD("Extracted $textLength characters from PDF")
 
                 // 3. Validate text length
                 if (extractedText.isBlank()) {
                     throw Exception("No text could be extracted from PDF")
                 }
 
-                // 4. Update state: Uploading
-                _documentUploadState.value = DocumentUploadState.Uploading(fileName, "Sending text to server for chunking...")
-
-                // 5. Call remote MCP server with extracted text
-                val result = mcpClient.callTool(
-                    toolName = "process_text_chunks",
-                    arguments = mapOf(
-                        "text" to extractedText,
-                        "filename" to fileName
-                    )
-                )
-
-                logD("PDF processing result: $result")
-
-                // 7. Parse result (MCP response format: result.content[0].text contains JSON)
-                val resultJson = Json.parseToJsonElement(result).jsonObject
-                val contentArray = resultJson["content"]?.jsonArray
-
-                if (contentArray != null && contentArray.isNotEmpty()) {
-                    val firstContent = contentArray[0].jsonObject
-                    val textContent = firstContent["text"]?.jsonPrimitive?.content ?: ""
-
-                    if (textContent.isNotEmpty()) {
-                        val parsedResult = Json.parseToJsonElement(textContent).jsonObject
-                        val success = parsedResult["success"]?.jsonPrimitive?.content?.toBoolean() ?: false
-
-                        if (success) {
-                            val chunksCount = parsedResult["chunks_saved"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
-                            val totalChars = parsedResult["total_characters"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
-
-                            // 8. Update documents count
-                            updateDocumentsCount()
-
-                            // 9. Show success message with typewriter animation
-                            val successMessage = buildString {
-                                append("✅ PDF обработан успешно!\n\n")
-                                append("📄 Файл: $fileName\n")
-                                append("📊 Создано фрагментов: $chunksCount\n")
-                                append("📝 Всего символов: $totalChars\n\n")
-                                append("🔮 Все фрагменты проиндексированы и доступны для поиска!")
-                            }
-
-                            displayTypewriterMessage(successMessage)
-
-                            // 10. Update state: Success
-                            _documentUploadState.value = DocumentUploadState.Success(fileName, chunksCount)
-                        } else {
-                            val errorMsg = parsedResult["error"]?.jsonPrimitive?.content ?: "Unknown error"
-                            _documentUploadState.value = DocumentUploadState.Error(errorMsg)
-
-                            val errorMessage = "❌ Ошибка при обработке PDF: $errorMsg"
-                            _messages.value = _messages.value + Message(text = errorMessage, isFromUser = false)
-                        }
-                    }
-                }
+                // 4. Process locally with local Ollama
+                processTextLocally(extractedText, fileName, sourceType = "pdf")
             }.onFailure { error ->
                 val errorMessage = "❌ Ошибка загрузки PDF: ${error.message}"
                 _messages.value = _messages.value + Message(text = errorMessage, isFromUser = false)
@@ -225,7 +157,11 @@ class OllamaViewModel(
         }
     }
 
-    fun uploadTxtFile(uri: Uri, fileName: String, context: Context) {
+    fun uploadTxtFile(
+        uri: Uri,
+        fileName: String,
+        context: Context
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             runAndCatch {
                 // 1. Update state: Reading
@@ -235,75 +171,23 @@ class OllamaViewModel(
                 logD("Reading text from .txt file: $fileName")
 
                 // 2. Read .txt file content
-                val extractedText = context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    inputStream.bufferedReader().use { reader ->
-                        reader.readText()
-                    }
-                } ?: throw Exception("Failed to read .txt file")
+                val extractedText =
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        inputStream.bufferedReader().use { reader ->
+                            reader.readText()
+                        }
+                    } ?: throw Exception("Failed to read .txt file")
 
                 val textLength = extractedText.length
-                logD("Read ${textLength} characters from .txt file")
+                logD("Read $textLength characters from .txt file")
 
                 // 3. Validate text length
                 if (extractedText.isBlank()) {
                     throw Exception(".txt file is empty")
                 }
 
-                // 4. Update state: Uploading
-                _documentUploadState.value = DocumentUploadState.Uploading(fileName, "Sending text to server for chunking...")
-
-                // 5. Call remote MCP server with extracted text
-                val result = mcpClient.callTool(
-                    toolName = "process_text_chunks",
-                    arguments = mapOf(
-                        "text" to extractedText,
-                        "filename" to fileName
-                    )
-                )
-
-                logD("TXT processing result: $result")
-
-                // 6. Parse result (MCP response format: result.content[0].text contains JSON)
-                val resultJson = Json.parseToJsonElement(result).jsonObject
-                val contentArray = resultJson["content"]?.jsonArray
-
-                if (contentArray != null && contentArray.isNotEmpty()) {
-                    val firstContent = contentArray[0].jsonObject
-                    val textContent = firstContent["text"]?.jsonPrimitive?.content ?: ""
-
-                    if (textContent.isNotEmpty()) {
-                        val parsedResult = Json.parseToJsonElement(textContent).jsonObject
-                        val success = parsedResult["success"]?.jsonPrimitive?.content?.toBoolean() ?: false
-
-                        if (success) {
-                            val chunksCount = parsedResult["chunks_saved"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
-                            val totalChars = parsedResult["total_characters"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
-
-                            // 7. Update documents count
-                            updateDocumentsCount()
-
-                            // 8. Show success message with typewriter animation
-                            val successMessage = buildString {
-                                append("✅ TXT файл обработан успешно!\n\n")
-                                append("📄 Файл: $fileName\n")
-                                append("📊 Создано фрагментов: $chunksCount\n")
-                                append("📝 Всего символов: $totalChars\n\n")
-                                append("🔮 Все фрагменты проиндексированы и доступны для поиска!")
-                            }
-
-                            displayTypewriterMessage(successMessage)
-
-                            // 9. Update state: Success
-                            _documentUploadState.value = DocumentUploadState.Success(fileName, chunksCount)
-                        } else {
-                            val errorMsg = parsedResult["error"]?.jsonPrimitive?.content ?: "Unknown error"
-                            _documentUploadState.value = DocumentUploadState.Error(errorMsg)
-
-                            val errorMessage = "❌ Ошибка при обработке TXT: $errorMsg"
-                            _messages.value = _messages.value + Message(text = errorMessage, isFromUser = false)
-                        }
-                    }
-                }
+                // 4. Process locally with local Ollama
+                processTextLocally(extractedText, fileName, sourceType = "txt")
             }.onFailure { error ->
                 val errorMessage = "❌ Ошибка загрузки TXT: ${error.message}"
                 _messages.value = _messages.value + Message(text = errorMessage, isFromUser = false)
@@ -319,19 +203,76 @@ class OllamaViewModel(
         }
     }
 
-    fun uploadDocument(uri: Uri, fileName: String, context: Context) {
+    fun uploadMarkdownFile(
+        uri: Uri,
+        fileName: String,
+        context: Context
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runAndCatch {
+                // 1. Update state: Reading
+                _documentUploadState.value = DocumentUploadState.Reading(fileName)
+                _isLoading.value = true
+
+                logD("Reading text from .md file: $fileName")
+
+                // 2. Read .md file content
+                val extractedText =
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        inputStream.bufferedReader().use { reader ->
+                            reader.readText()
+                        }
+                    } ?: throw Exception("Failed to read .md file")
+
+                val textLength = extractedText.length
+                logD("Read $textLength characters from .md file")
+
+                // 3. Validate text length
+                if (extractedText.isBlank()) {
+                    throw Exception(".md file is empty")
+                }
+
+                // 4. Process locally with local Ollama
+                processTextLocally(extractedText, fileName, sourceType = "markdown")
+            }.onFailure { error ->
+                val errorMessage = "❌ Ошибка загрузки Markdown: ${error.message}"
+                _messages.value = _messages.value + Message(text = errorMessage, isFromUser = false)
+                _documentUploadState.value = DocumentUploadState.Error(error.message ?: "Unknown error")
+                logE("Error in uploadMarkdownFile", error)
+            }
+
+            _isLoading.value = false
+
+            // Reset state after 3 seconds
+            delay(3000)
+            _documentUploadState.value = DocumentUploadState.Idle
+        }
+    }
+
+    fun uploadDocument(
+        uri: Uri,
+        fileName: String,
+        context: Context
+    ) {
         when {
             fileName.endsWith(".pdf", ignoreCase = true) -> {
                 uploadPdf(uri, fileName, context)
             }
+
             fileName.endsWith(".txt", ignoreCase = true) -> {
                 uploadTxtFile(uri, fileName, context)
             }
+
+            fileName.endsWith(".md", ignoreCase = true) -> {
+                uploadMarkdownFile(uri, fileName, context)
+            }
+
             else -> {
                 viewModelScope.launch {
-                    _documentUploadState.value = DocumentUploadState.Error(
-                        "Unsupported file type. Please select .pdf or .txt file."
-                    )
+                    _documentUploadState.value =
+                        DocumentUploadState.Error(
+                            "Unsupported file type. Please select .pdf, .txt, or .md file."
+                        )
                     delay(3000)
                     _documentUploadState.value = DocumentUploadState.Idle
                 }
@@ -341,42 +282,104 @@ class OllamaViewModel(
 
     private suspend fun updateDocumentsCount() {
         runAndCatch {
-            // Search with empty query to get all documents
-            val searchResult =
-                mcpClient.callTool(
-                    toolName = "search_similar",
-                    arguments =
-                        mapOf(
-                            "query" to "test",
-                            "limit" to 1000
-                        )
-                )
+            // Get count from LOCAL database
+            val count = embeddingsRepository.getChunksCount()
 
-            logD("Search result for count: $searchResult")
-
-            // Parse the result to get documents count
-            val resultJson = Json.parseToJsonElement(searchResult).jsonObject
-            val contentArray = resultJson["content"]?.jsonArray
-
-            if (contentArray != null && contentArray.isNotEmpty()) {
-                val firstContent = contentArray[0].jsonObject
-                val textContent = firstContent["text"]?.jsonPrimitive?.content ?: ""
-
-                if (textContent.isNotEmpty()) {
-                    val parsedResult = Json.parseToJsonElement(textContent).jsonObject
-                    val count = parsedResult["count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
-
-                    _documentsCount.value = count
-                    logD("Documents count updated: $count")
-                } else {
-                    logD("Empty text content in response")
-                }
-            } else {
-                logD("Empty content array in response")
-            }
+            _documentsCount.value = count
+            logD("Documents count updated from LOCAL database: $count")
         }.onFailure { error ->
             logE("Error updating documents count", error)
         }
+    }
+
+    /**
+     * Process text locally: chunk it, generate embeddings with local Ollama, then save to LOCAL database
+     */
+    private suspend fun processTextLocally(
+        text: String,
+        fileName: String,
+        sourceType: String,
+        chunkSize: Int = 1000,
+        chunkOverlap: Int = 200
+    ) {
+        logD("🔧 Starting LOCAL processing for: $fileName")
+        logD("📊 Text length: ${text.length} characters")
+
+        val startTime = System.currentTimeMillis()
+
+        // 1. Chunk text locally
+        _documentUploadState.value = DocumentUploadState.Uploading(fileName, "Chunking text locally...")
+
+        val chunks =
+            com.example.aiwithlove.util.TextChunker.chunkTextWithMetadata(
+                text = text,
+                chunkSize = chunkSize,
+                chunkOverlap = chunkOverlap
+            )
+
+        val totalChunks = chunks.size
+        logD("✂️ Created $totalChunks chunks locally")
+
+        // 2. Process each chunk: generate embedding locally and save to LOCAL database
+        var savedCount = 0
+        var failedCount = 0
+
+        for (chunk in chunks) {
+            try {
+                // Update progress
+                val progress = "Processing chunk ${chunk.chunkIndex + 1}/$totalChunks..."
+                _documentUploadState.value = DocumentUploadState.Uploading(fileName, progress)
+                logD("📦 $progress")
+
+                // Generate embedding with LOCAL Ollama
+                val embedding = ollamaClient.generateEmbedding(chunk.content)
+                logD("✅ Embedding generated: ${embedding.size} dimensions")
+
+                // Save to LOCAL database
+                val chunkId =
+                    embeddingsRepository.saveChunk(
+                        content = "[$fileName - Chunk ${chunk.chunkIndex + 1}/$totalChunks]\n\n${chunk.content}",
+                        embedding = embedding,
+                        sourceFile = fileName,
+                        sourceType = sourceType,
+                        chunkIndex = chunk.chunkIndex,
+                        totalChunks = totalChunks
+                    )
+
+                logD("💾 Chunk ${chunk.chunkIndex + 1} saved to LOCAL database with ID: $chunkId")
+                savedCount++
+            } catch (e: Exception) {
+                logE("❌ Failed to process chunk ${chunk.chunkIndex + 1}", e)
+                failedCount++
+            }
+        }
+
+        val processingTime = (System.currentTimeMillis() - startTime) / 1000.0
+
+        logD("🎉 LOCAL processing complete: $savedCount saved, $failedCount failed in ${processingTime}s")
+
+        // 3. Update documents count
+        updateDocumentsCount()
+
+        // 4. Show success message
+        val successMessage =
+            buildString {
+                append("✅ $fileName обработан локально!\n\n")
+                append("📄 Файл: $fileName\n")
+                append("📊 Создано фрагментов: $savedCount/$totalChunks\n")
+                append("📝 Всего символов: ${text.length}\n")
+                append("⏱️ Время обработки: ${processingTime.toInt()}s\n")
+                if (failedCount > 0) {
+                    append("⚠️ Не удалось обработать: $failedCount\n")
+                }
+                append("\n🔮 Эмбеддинги созданы локально через Ollama!\n")
+                append("💾 Все фрагменты сохранены в ЛОКАЛЬНОЙ базе данных!")
+            }
+
+        displayTypewriterMessage(successMessage)
+
+        // 5. Update state: Success
+        _documentUploadState.value = DocumentUploadState.Success(fileName, savedCount)
     }
 
     private suspend fun displayTypewriterMessage(message: String) {
@@ -408,8 +411,18 @@ class OllamaViewModel(
 
 sealed class DocumentUploadState {
     object Idle : DocumentUploadState()
-    data class Reading(val fileName: String) : DocumentUploadState()
-    data class Uploading(val fileName: String, val progress: String) : DocumentUploadState()
-    data class Success(val fileName: String, val chunksCount: Int) : DocumentUploadState()
-    data class Error(val message: String) : DocumentUploadState()
+    data class Reading(
+        val fileName: String
+    ) : DocumentUploadState()
+    data class Uploading(
+        val fileName: String,
+        val progress: String
+    ) : DocumentUploadState()
+    data class Success(
+        val fileName: String,
+        val chunksCount: Int
+    ) : DocumentUploadState()
+    data class Error(
+        val message: String
+    ) : DocumentUploadState()
 }

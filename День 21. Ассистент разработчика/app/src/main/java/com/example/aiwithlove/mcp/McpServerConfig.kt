@@ -22,43 +22,112 @@ object McpServers {
     val availableServers =
         listOf(
             McpServerConfig(
-                id = "jokes",
-                name = "JokeAPI Server",
+                id = "rag",
+                name = "RAG Server",
                 url = ServerConfig.MCP_SERVER_URL,
-                description = "MCP сервер для работы с шутками: получение из JokeAPI, сохранение в базу данных и просмотр избранного.",
+                description = "MCP сервер для семантического поиска в документах с использованием RAG (Retrieval-Augmented Generation).",
                 tools =
                     listOf(
                         McpToolInfo(
-                            name = "get_joke",
-                            emoji = "🎭",
-                            description = "Получение случайной шутки из JokeAPI. Поддерживает категории: Any, Programming, Misc, Dark, Pun, Spooky, Christmas.",
-                            triggerWords = listOf("шутка", "анекдот", "jokeapi", "пошути", "рассмеши")
-                        ),
-                        McpToolInfo(
-                            name = "save_joke",
-                            emoji = "💾",
-                            description = "Сохранение шутки (переведённой на русский) в локальную базу данных на сервере. Шутка будет доступна в избранном.",
-                            triggerWords = listOf("сохрани шутку", "сохрани эту шутку", "запомни шутку", "добавь в избранное")
-                        ),
-                        McpToolInfo(
-                            name = "get_saved_jokes",
-                            emoji = "📖",
-                            description = "Просмотр всех сохранённых шуток из базы данных. Показывает избранные шутки с датой сохранения.",
-                            triggerWords = listOf("мои шутки", "избранные шутки", "сохранённые шутки", "покажи сохранённые")
-                        ),
-                        McpToolInfo(
-                            name = "run_tests",
-                            emoji = "🧪",
-                            description = "Запуск тестов MCP сервера в изолированном Docker контейнере. Выполняет все модульные тесты и возвращает результаты.",
-                            triggerWords = listOf("запусти тесты", "протестируй сервер", "проверь работу", "тесты", "test")
-                        ),
-                        McpToolInfo(
                             name = "semantic_search",
                             emoji = "🌐",
-                            description = "Семантический поиск релевантных фрагментов документов на удалённом MCP сервере. Используется для поиска контекста из проиндексированных документов для ответа на вопросы.",
-                            triggerWords = listOf("найди в документах", "поиск в базе", "что говорится в документах", "информация о", "расскажи о", "что такое", "как работает", "объясни")
+                            description =
+                                "Семантический поиск релевантных фрагментов в проиндексированных документах. " +
+                                    "Документы обрабатываются локально через Ollama, векторные представления хранятся на сервере. " +
+                                    "Используется для поиска контекста для ответа на вопросы.",
+                            triggerWords =
+                                listOf(
+                                    "найди в документах",
+                                    "поиск в базе",
+                                    "что говорится в документах",
+                                    "информация о",
+                                    "расскажи о",
+                                    "что такое",
+                                    "как работает",
+                                    "объясни"
+                                )
                         )
                     )
+            ),
+            McpServerConfig(
+                id = "github",
+                name = "GitHub Assistant",
+                url = if (ServerConfig.GITHUB_MCP_USE_LOCAL) ServerConfig.GITHUB_MCP_LOCAL_URL else ServerConfig.GITHUB_MCP_SERVER_URL,
+                description = "GitHub операции: репозитории, issues, PRs, коммиты, поиск кода",
+                tools =
+                    listOf(
+                        McpToolInfo(
+                            name = "get_repo",
+                            emoji = "📦",
+                            description = "Получить информацию о репозитории",
+                            triggerWords = listOf("GitWithLove")
+                        ),
+                        McpToolInfo(
+                            name = "search_code",
+                            emoji = "🔍",
+                            description = "Поиск кода в репозиториях",
+                            triggerWords = listOf("GitWithLove")
+                        ),
+                        McpToolInfo(
+                            name = "create_issue",
+                            emoji = "🐛",
+                            description = "Создать issue в GitHub",
+                            triggerWords = listOf("GitWithLove")
+                        ),
+                        McpToolInfo(
+                            name = "list_issues",
+                            emoji = "📋",
+                            description = "Список issues",
+                            triggerWords = listOf("GitWithLove")
+                        ),
+                        McpToolInfo(
+                            name = "list_commits",
+                            emoji = "📝",
+                            description = "История коммитов",
+                            triggerWords = listOf("GitWithLove")
+                        ),
+                        McpToolInfo(
+                            name = "get_repo_content",
+                            emoji = "📄",
+                            description = "Получить содержимое файла из репозитория",
+                            triggerWords = listOf("GitWithLove")
+                        )
+                    ),
+                isEnabled = false
+            ),
+            McpServerConfig(
+                id = "local_git",
+                name = "Local Git",
+                url = ServerConfig.LOCAL_GIT_SERVER_URL,
+                description = "Локальные git операции: статус, ветки, diff, PR статус",
+                tools =
+                    listOf(
+                        McpToolInfo(
+                            name = "git_status",
+                            emoji = "📊",
+                            description = "Git статус: измененные файлы, текущая ветка",
+                            triggerWords = listOf("GitLocal", "git status", "статус репозитория")
+                        ),
+                        McpToolInfo(
+                            name = "git_branch",
+                            emoji = "🌿",
+                            description = "Список веток",
+                            triggerWords = listOf("GitLocal", "ветки", "branches")
+                        ),
+                        McpToolInfo(
+                            name = "git_diff",
+                            emoji = "📝",
+                            description = "Изменения в файлах (diff)",
+                            triggerWords = listOf("GitLocal", "diff", "изменения")
+                        ),
+                        McpToolInfo(
+                            name = "git_pr_status",
+                            emoji = "🔀",
+                            description = "Статус pull request",
+                            triggerWords = listOf("GitLocal", "pr status", "статус pr")
+                        )
+                    ),
+                isEnabled = false
             )
         )
 }

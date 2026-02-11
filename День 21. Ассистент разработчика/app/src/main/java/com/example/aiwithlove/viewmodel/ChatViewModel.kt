@@ -9,7 +9,8 @@ import com.example.aiwithlove.data.model.McpToolInfo
 import com.example.aiwithlove.data.model.Message
 import com.example.aiwithlove.data.model.SemanticSearchResult
 import com.example.aiwithlove.database.ChatRepository
-import com.example.aiwithlove.mcp.McpClient
+import com.example.aiwithlove.database.SimilarChunk
+import com.example.aiwithlove.mcp.McpClientManager
 import com.example.aiwithlove.mcp.McpServerConfig
 import com.example.aiwithlove.mcp.McpServers
 import com.example.aiwithlove.util.ILoggable
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -36,8 +38,9 @@ import kotlinx.serialization.json.putJsonObject
 class ChatViewModel(
     private val perplexityService: PerplexityApiService,
     private val chatRepository: ChatRepository,
-    private val mcpClient: McpClient,
-    private val context: android.content.Context
+    private val mcpClientManager: McpClientManager,
+    private val ollamaClient: com.example.aiwithlove.ollama.OllamaClient,
+    private val embeddingsRepository: com.example.aiwithlove.database.EmbeddingsRepository
 ) : ViewModel(),
     ILoggable {
 
@@ -54,11 +57,10 @@ class ChatViewModel(
     private val _showMcpDialog = MutableStateFlow(false)
     val showMcpDialog: StateFlow<Boolean> = _showMcpDialog.asStateFlow()
 
-    private val _searchThreshold = MutableStateFlow(0.6f)  // Lowered for better results
+    private val _searchThreshold = MutableStateFlow(0.6f) // Lowered for better results
     val searchThreshold: StateFlow<Float> = _searchThreshold.asStateFlow()
 
     private var userMessagesCountSinceAppLaunch = 0
-    private var lastJokeResult: String? = null
 
     init {
         loadChatHistory()
@@ -86,188 +88,64 @@ class ChatViewModel(
 
     private fun isJokeServerEnabled(): Boolean = _mcpServers.value.any { it.id == "jokes" && it.isEnabled }
 
-    private fun userMentionsJokes(message: String): Boolean {
+    private fun userMentionsGitHub(message: String): Boolean {
         val lowerMessage = message.lowercase()
-
-        val keywords =
-            listOf(
-                "jokeapi",
-                "joke api",
-                "джокапи",
-                "жокапи",
-                "joke-api",
-                "шутк",
-                "анекдот",
-                "пошути",
-                "рассмеши",
-                "мои шутки",
-                "избранные шутки",
-                "сохранённые шутки",
-                "сохраненные шутки",
-                // Test-related keywords
-                "тест",
-                "запусти тест",
-                "протестируй",
-                "проверь работу",
-                "проверь сервер",
-                "run test",
-                "run_test"
-            )
-
-        if (keywords.any { lowerMessage.contains(it) }) {
-            return true
-        }
-
-        val savePatterns =
-            listOf(
-                Regex("""сохрани\s+(её|ее|его|их)"""),
-                Regex("""запомни\s+(её|ее|его|их)"""),
-                Regex("""добавь\s+(её|ее|его|их)""")
-            )
-
-        return savePatterns.any { it.find(lowerMessage) != null }
+        return lowerMessage.contains("gitwithlove")
     }
 
-    private fun userMentionsSemanticSearch(message: String): Boolean {
+    private fun isGitHubServerEnabled(): Boolean = _mcpServers.value.any { it.id == "github" && it.isEnabled }
+
+    private fun userMentionsLocalGit(message: String): Boolean {
         val lowerMessage = message.lowercase()
-
-        val keywords =
-            listOf(
-                "найди в документах",
-                "поиск в базе",
-                "что говорится в документах",
-                "информация о",
-                "расскажи о",
-                "что такое",
-                "как работает",
-                "объясни",
-                "документ"
-            )
-
-        return keywords.any { lowerMessage.contains(it) }
+        return lowerMessage.contains("gitlocal")
     }
 
-    private fun buildAgenticJokeTool(): AgenticTool {
+    private fun isLocalGitServerEnabled(): Boolean = _mcpServers.value.any { it.id == "local_git" && it.isEnabled }
+
+    private fun buildGetRepoTool(): AgenticTool {
         val parameters =
             buildJsonObject {
                 put("type", "object")
                 putJsonObject("properties") {
-                    putJsonObject("category") {
+                    putJsonObject("owner") {
                         put("type", "string")
-                        put("description", "Joke category: Any, Programming, Misc, Dark, Pun, Spooky, Christmas")
-                        put("default", "Any")
+                        put("description", "Repository owner (username or organization)")
                     }
-                    putJsonObject("blacklistFlags") {
+                    putJsonObject("repo") {
                         put("type", "string")
-                        put("description", "Comma-separated flags to blacklist: nsfw,religious,political,racist,sexist,explicit")
-                        put("default", "nsfw,religious,political,racist,sexist,explicit")
-                    }
-                }
-                putJsonArray("required") { }
-            }
-
-        return AgenticTool(
-            type = "function",
-            name = "get_joke",
-            description = "Fetches a random joke from JokeAPI. Use this when user asks for a joke.",
-            parameters = parameters
-        )
-    }
-
-    private fun buildSaveJokeTool(): AgenticTool {
-        val parameters =
-            buildJsonObject {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("joke_api_id") {
-                        put("type", "integer")
-                        put("description", "Original joke ID from JokeAPI")
-                    }
-                    putJsonObject("category") {
-                        put("type", "string")
-                        put("description", "Joke category from JokeAPI")
-                    }
-                    putJsonObject("type") {
-                        put("type", "string")
-                        put("description", "Joke type: single or twopart")
-                    }
-                    putJsonObject("joke_text") {
-                        put("type", "string")
-                        put("description", "Full joke text for single type jokes (translated Russian version)")
-                    }
-                    putJsonObject("setup") {
-                        put("type", "string")
-                        put("description", "Setup part for twopart jokes (translated Russian version)")
-                    }
-                    putJsonObject("delivery") {
-                        put("type", "string")
-                        put("description", "Delivery/punchline for twopart jokes (translated Russian version)")
+                        put("description", "Repository name")
                     }
                 }
                 putJsonArray("required") {
-                    add(JsonPrimitive("type"))
+                    add(JsonPrimitive("owner"))
+                    add(JsonPrimitive("repo"))
                 }
             }
 
         return AgenticTool(
             type = "function",
-            name = "save_joke",
-            description = "Save a joke to the local database. Use this when user asks to save, remember, or add joke to favorites. Pass the translated Russian joke text.",
+            name = "get_repo",
+            description = "Get detailed information about a GitHub repository including description, stars, forks, language, and topics",
             parameters = parameters
         )
     }
 
-    private fun buildGetSavedJokesTool(): AgenticTool {
-        val parameters =
-            buildJsonObject {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("limit") {
-                        put("type", "integer")
-                        put("description", "Maximum number of jokes to return (default: 50)")
-                        put("default", 50)
-                    }
-                }
-                putJsonArray("required") { }
-            }
-
-        return AgenticTool(
-            type = "function",
-            name = "get_saved_jokes",
-            description = "Get all saved jokes from the local database. Use this when user asks to show saved jokes, my jokes, or favorites.",
-            parameters = parameters
-        )
-    }
-
-    private fun buildRunTestsTool(): AgenticTool {
-        val parameters =
-            buildJsonObject {
-                put("type", "object")
-                putJsonObject("properties") { }
-                putJsonArray("required") { }
-            }
-
-        return AgenticTool(
-            type = "function",
-            name = "run_tests",
-            description = "Run MCP server tests in an isolated Docker container. Use this when user asks to run tests, test the server, or check if everything works. Returns summary of test results.",
-            parameters = parameters
-        )
-    }
-
-    private fun buildSemanticSearchTool(): AgenticTool {
+    private fun buildSearchCodeTool(): AgenticTool {
         val parameters =
             buildJsonObject {
                 put("type", "object")
                 putJsonObject("properties") {
                     putJsonObject("query") {
                         put("type", "string")
-                        put("description", "Question or search text to find relevant document chunks")
+                        put(
+                            "description",
+                            "Search query using GitHub code search syntax (e.g., 'language:kotlin android', 'class:MyClass repo:owner/repo')"
+                        )
                     }
-                    putJsonObject("limit") {
+                    putJsonObject("max_results") {
                         put("type", "integer")
-                        put("description", "Maximum number of relevant chunks to return")
-                        put("default", 3)
+                        put("description", "Maximum number of results to return")
+                        put("default", 5)
                     }
                 }
                 putJsonArray("required") {
@@ -277,8 +155,264 @@ class ChatViewModel(
 
         return AgenticTool(
             type = "function",
-            name = "semantic_search",
-            description = "Search for relevant document chunks with SOURCE CITATIONS from indexed documents using semantic similarity. Returns documents with 'citation' field containing [filename, page, chunk]. ALWAYS include these citations in your response to the user when presenting information.",
+            name = "search_code",
+            description = "Search for code across GitHub repositories using GitHub's code search syntax",
+            parameters = parameters
+        )
+    }
+
+    private fun buildCreateIssueTool(): AgenticTool {
+        val parameters =
+            buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("owner") {
+                        put("type", "string")
+                        put("description", "Repository owner")
+                    }
+                    putJsonObject("repo") {
+                        put("type", "string")
+                        put("description", "Repository name")
+                    }
+                    putJsonObject("title") {
+                        put("type", "string")
+                        put("description", "Issue title")
+                    }
+                    putJsonObject("body") {
+                        put("type", "string")
+                        put("description", "Issue description (supports markdown)")
+                    }
+                }
+                putJsonArray("required") {
+                    add(JsonPrimitive("owner"))
+                    add(JsonPrimitive("repo"))
+                    add(JsonPrimitive("title"))
+                    add(JsonPrimitive("body"))
+                }
+            }
+
+        return AgenticTool(
+            type = "function",
+            name = "create_issue",
+            description = "Create a new issue in a GitHub repository",
+            parameters = parameters
+        )
+    }
+
+    private fun buildListIssuesTool(): AgenticTool {
+        val parameters =
+            buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("owner") {
+                        put("type", "string")
+                        put("description", "Repository owner")
+                    }
+                    putJsonObject("repo") {
+                        put("type", "string")
+                        put("description", "Repository name")
+                    }
+                    putJsonObject("state") {
+                        put("type", "string")
+                        put("description", "Filter by state: open, closed, or all")
+                        put("default", "open")
+                    }
+                }
+                putJsonArray("required") {
+                    add(JsonPrimitive("owner"))
+                    add(JsonPrimitive("repo"))
+                }
+            }
+
+        return AgenticTool(
+            type = "function",
+            name = "list_issues",
+            description = "List issues from a GitHub repository with optional filtering by state",
+            parameters = parameters
+        )
+    }
+
+    private fun buildListCommitsTool(): AgenticTool {
+        val parameters =
+            buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("owner") {
+                        put("type", "string")
+                        put("description", "Repository owner")
+                    }
+                    putJsonObject("repo") {
+                        put("type", "string")
+                        put("description", "Repository name")
+                    }
+                    putJsonObject("max_results") {
+                        put("type", "integer")
+                        put("description", "Maximum number of commits to return")
+                        put("default", 10)
+                    }
+                }
+                putJsonArray("required") {
+                    add(JsonPrimitive("owner"))
+                    add(JsonPrimitive("repo"))
+                }
+            }
+
+        return AgenticTool(
+            type = "function",
+            name = "list_commits",
+            description = "List commit history for a repository",
+            parameters = parameters
+        )
+    }
+
+    private fun buildGetRepoContentTool(): AgenticTool {
+        val parameters =
+            buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("owner") {
+                        put("type", "string")
+                        put("description", "Repository owner")
+                    }
+                    putJsonObject("repo") {
+                        put("type", "string")
+                        put("description", "Repository name")
+                    }
+                    putJsonObject("path") {
+                        put("type", "string")
+                        put("description", "File or directory path in the repository")
+                    }
+                }
+                putJsonArray("required") {
+                    add(JsonPrimitive("owner"))
+                    add(JsonPrimitive("repo"))
+                    add(JsonPrimitive("path"))
+                }
+            }
+
+        return AgenticTool(
+            type = "function",
+            name = "get_repo_content",
+            description = "Get contents of a file or directory from a GitHub repository",
+            parameters = parameters
+        )
+    }
+
+    private fun buildGitStatusTool(): AgenticTool {
+        val parameters =
+            buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("repo_path") {
+                        put("type", "string")
+                        put("description", "Path to git repository")
+                        put("default", "/Users/falin/AndroidStudioProjects/AI-with-Love")
+                    }
+                }
+                putJsonArray("required") {
+                    // No required parameters - uses default repo_path
+                }
+            }
+
+        return AgenticTool(
+            type = "function",
+            name = "git_status",
+            description =
+                "Get current git repository status: modified files, staged files, untracked files, " +
+                    "current branch, ahead/behind remote",
+            parameters = parameters
+        )
+    }
+
+    private fun buildGitBranchTool(): AgenticTool {
+        val parameters =
+            buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("repo_path") {
+                        put("type", "string")
+                        put("description", "Path to git repository")
+                        put("default", "/Users/falin/AndroidStudioProjects/AI-with-Love")
+                    }
+                    putJsonObject("include_remote") {
+                        put("type", "boolean")
+                        put("description", "Include remote branches")
+                        put("default", true)
+                    }
+                }
+                putJsonArray("required") {
+                    // No required parameters
+                }
+            }
+
+        return AgenticTool(
+            type = "function",
+            name = "git_branch",
+            description = "List all local and remote branches, showing which is currently active",
+            parameters = parameters
+        )
+    }
+
+    private fun buildGitDiffTool(): AgenticTool {
+        val parameters =
+            buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("repo_path") {
+                        put("type", "string")
+                        put("description", "Path to git repository")
+                        put("default", "/Users/falin/AndroidStudioProjects/AI-with-Love")
+                    }
+                    putJsonObject("filepath") {
+                        put("type", "string")
+                        put("description", "Optional: specific file path to diff (omit for all changes)")
+                    }
+                    putJsonObject("staged") {
+                        put("type", "boolean")
+                        put("description", "If true, show staged changes; if false, show unstaged")
+                        put("default", false)
+                    }
+                    putJsonObject("max_lines") {
+                        put("type", "integer")
+                        put("description", "Maximum lines of diff output")
+                        put("default", 500)
+                    }
+                }
+                putJsonArray("required") {
+                    // No required parameters
+                }
+            }
+
+        return AgenticTool(
+            type = "function",
+            name = "git_diff",
+            description = "Get diff for files (unstaged or staged changes)",
+            parameters = parameters
+        )
+    }
+
+    private fun buildGitPrStatusTool(): AgenticTool {
+        val parameters =
+            buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("repo_path") {
+                        put("type", "string")
+                        put("description", "Path to git repository")
+                        put("default", "/Users/falin/AndroidStudioProjects/AI-with-Love")
+                    }
+                }
+                putJsonArray("required") {
+                    // No required parameters
+                }
+            }
+
+        return AgenticTool(
+            type = "function",
+            name = "git_pr_status",
+            description =
+                "Check pull request status for current branch by combining local git info with GitHub API. " +
+                    "Returns current branch, related PRs, and whether PRs are open.",
             parameters = parameters
         )
     }
@@ -328,7 +462,8 @@ class ChatViewModel(
                         )
                     logD("🔧 Calling MCP server with args: $args")
 
-                    val mcpResult = mcpClient.callTool("get_joke", args)
+                    val enabledServers = _mcpServers.value.filter { it.isEnabled }.map { it.id }
+                    val mcpResult = mcpClientManager.callTool("get_joke", args, enabledServers)
                     logD("🔧 MCP result: $mcpResult")
 
                     val parsedResult = parseJokeFromMcpResult(mcpResult)
@@ -357,7 +492,8 @@ class ChatViewModel(
                     val requestBody = arguments ?: "{}"
                     logD("🔧 Calling MCP server save_joke with args: $args")
 
-                    val mcpResult = mcpClient.callTool("save_joke", args)
+                    val enabledServers = _mcpServers.value.filter { it.isEnabled }.map { it.id }
+                    val mcpResult = mcpClientManager.callTool("save_joke", args, enabledServers)
                     logD("🔧 MCP result: $mcpResult")
 
                     val parsedResult = parseJokeFromMcpResult(mcpResult)
@@ -386,7 +522,8 @@ class ChatViewModel(
                     val requestBody = arguments ?: "{}"
                     logD("🔧 Calling MCP server get_saved_jokes with args: $args")
 
-                    val mcpResult = mcpClient.callTool("get_saved_jokes", args)
+                    val enabledServers = _mcpServers.value.filter { it.isEnabled }.map { it.id }
+                    val mcpResult = mcpClientManager.callTool("get_saved_jokes", args, enabledServers)
                     logD("🔧 MCP result: $mcpResult")
 
                     val parsedResult = parseJokeFromMcpResult(mcpResult)
@@ -415,7 +552,8 @@ class ChatViewModel(
                     val requestBody = arguments ?: "{}"
                     logD("🧪 Calling MCP server run_tests")
 
-                    val mcpResult = mcpClient.callTool("run_tests", args)
+                    val enabledServers = _mcpServers.value.filter { it.isEnabled }.map { it.id }
+                    val mcpResult = mcpClientManager.callTool("run_tests", args, enabledServers)
                     logD("🧪 MCP result: $mcpResult")
 
                     val parsedResult = parseJokeFromMcpResult(mcpResult)
@@ -438,50 +576,82 @@ class ChatViewModel(
                 }
             }
 
-            "semantic_search" -> {
+            // GitHub tools
+            "get_repo", "search_code", "create_issue", "list_issues",
+            "list_commits", "get_repo_content" -> {
                 runAndCatch {
-                    // Get current threshold from UI state
-                    val currentThreshold = _searchThreshold.value
-
-                    val args = parseToolArguments(arguments).toMutableMap()
-                    // Override threshold with current UI value
-                    args["threshold"] = currentThreshold.toDouble()
-                    // Always enable comparison mode per user preference
-                    args["compare_mode"] = true
-
+                    val args = parseToolArguments(arguments)
                     val requestBody = arguments ?: "{}"
-                    logD("🌐 Calling MCP server semantic_search with threshold=$currentThreshold, compare_mode=true")
 
-                    val mcpResult = mcpClient.callTool("semantic_search", args)
-                    logD("🌐 MCP result: $mcpResult")
+                    logD("🐙 Calling GitHub MCP: $toolName with args: $args")
+
+                    val enabledServers =
+                        _mcpServers.value
+                            .filter { it.isEnabled }
+                            .map { it.id }
+
+                    val mcpResult =
+                        mcpClientManager.callTool(
+                            toolName = toolName,
+                            arguments = args,
+                            enabledServers = enabledServers
+                        )
+
+                    logD("🐙 GitHub MCP result: ${mcpResult.take(200)}...")
 
                     val parsedResult = parseJokeFromMcpResult(mcpResult)
-                    val semanticResult = parseSemanticSearchResult(mcpResult)
-
-                    // Log parsed results for debugging
-                    if (semanticResult != null) {
-                        val docCount = semanticResult.count
-                            ?: semanticResult.filteredResults?.count
-                            ?: semanticResult.unfiltered?.count
-                            ?: 0
-                        val threshold = semanticResult.threshold ?: "N/A"
-                        logD("🌐 Parsed $docCount documents with threshold $threshold")
-                    } else {
-                        logD("🌐 Could not parse semantic search result")
-                    }
 
                     ToolExecutionResult(
                         result = parsedResult,
                         mcpToolInfo =
                             McpToolInfo(
-                                toolName = "semantic_search",
+                                toolName = toolName,
                                 requestBody = requestBody,
-                                responseBody = parsedResult,
-                                semanticSearchResult = semanticResult
+                                responseBody = parsedResult
                             )
                     )
                 }.getOrElse { error ->
-                    logE("🌐 Semantic search failed", error)
+                    logE("🐙 GitHub tool execution failed", error)
+                    ToolExecutionResult(
+                        result = """{"error": true, "message": "${error.message}"}""",
+                        mcpToolInfo = null
+                    )
+                }
+            }
+
+            // Local Git tools
+            "git_status", "git_branch", "git_diff", "git_pr_status" -> {
+                runAndCatch {
+                    val args = parseToolArguments(arguments)
+                    val requestBody = arguments ?: "{}"
+
+                    logD("🌿 Calling Local Git MCP: $toolName")
+
+                    val enabledServers =
+                        _mcpServers.value
+                            .filter { it.isEnabled }
+                            .map { it.id }
+
+                    val mcpResult =
+                        mcpClientManager.callTool(
+                            toolName = toolName,
+                            arguments = args,
+                            enabledServers = enabledServers
+                        )
+
+                    val parsedResult = parseJokeFromMcpResult(mcpResult)
+
+                    ToolExecutionResult(
+                        result = parsedResult,
+                        mcpToolInfo =
+                            McpToolInfo(
+                                toolName = toolName,
+                                requestBody = requestBody,
+                                responseBody = parsedResult
+                            )
+                    )
+                }.getOrElse { error ->
+                    logE("🌿 Local Git tool failed", error)
                     ToolExecutionResult(
                         result = """{"error": true, "message": "${error.message}"}""",
                         mcpToolInfo = null
@@ -498,33 +668,6 @@ class ChatViewModel(
             }
         }
     }
-
-    private fun saveLogsToFile(logsContent: String): String =
-        try {
-            val timestamp =
-                java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", java.util.Locale.getDefault())
-                    .format(java.util.Date())
-            val fileName = "test_logs_$timestamp.txt"
-
-            // Delete previous log file (keep only the most recent)
-            val logsDir = context.filesDir
-            logsDir.listFiles()?.forEach { file ->
-                if (file.name.startsWith("test_logs_") && file.name.endsWith(".txt")) {
-                    file.delete()
-                    logD("Deleted old log file: ${file.name}")
-                }
-            }
-
-            // Create new log file
-            val logFile = java.io.File(logsDir, fileName)
-            logFile.writeText(logsContent)
-            logD("Saved logs to file: ${logFile.absolutePath}")
-
-            logFile.absolutePath
-        } catch (e: Exception) {
-            logE("Failed to save logs to file", e)
-            ""
-        }
 
     private fun parseToolArguments(arguments: String?): Map<String, Any> {
         if (arguments == null) return emptyMap()
@@ -575,15 +718,21 @@ class ChatViewModel(
         return savePatterns.any { it.find(lowerMessage) != null }
     }
 
-    private fun buildInstructions(useJokeTools: Boolean, useSemanticSearch: Boolean): String {
+    private fun buildInstructions(
+        useJokeTools: Boolean,
+        useSemanticSearch: Boolean,
+        useGitHubTools: Boolean,
+        useLocalGitTools: Boolean
+    ): String {
         val baseInstruction = "You are a helpful assistant. Respond in Russian."
-        if (!useJokeTools && !useSemanticSearch) return baseInstruction
+        if (!useJokeTools && !useSemanticSearch && !useGitHubTools && !useLocalGitTools) return baseInstruction
 
         val instructions = mutableListOf<String>()
         instructions.add(baseInstruction)
 
         if (useJokeTools) {
-            instructions.add("""
+            instructions.add(
+                """
 When user asks for a joke, use the get_joke tool and translate the result to Russian.
 When user asks to save a joke, use the save_joke tool with the TRANSLATED Russian version. Extract from the most recent get_joke tool result: joke_api_id (from "id" field), category, type. For the joke text, use your translated Russian version - either joke_text (for type="single") or setup and delivery (for type="twopart").
 When user asks for saved/favorite jokes, use the get_saved_jokes tool. Present the jokes in a nice format.
@@ -597,42 +746,52 @@ Tests count: [tests_run]
 Executing time: [execution_time]
 
 - Use ONLY numbers, no extra text
-- Do NOT add explanations, jokes, or additional content""".trimIndent())
+- Do NOT add explanations, jokes, or additional content
+                """.trimIndent()
+            )
         }
 
-        if (useSemanticSearch) {
-            instructions.add("""
-When user asks a question, FIRST use the semantic_search tool to find relevant documents.
+        if (useGitHubTools) {
+            instructions.add(
+                """
+GitHub Operations:
+- Use get_repo for repository information (description, stats, languages)
+- Use search_code to find code patterns across repositories
+- Use create_issue to create new issues with title, body, and optional labels
+- Use list_issues to view issues (filter by state: open/closed/all)
+- Use list_commits for commit history
+- Use get_repo_content to read files from repositories
 
-CRITICAL - Understanding the JSON Response:
-The tool returns a JSON with these fields:
-- "filteredResults": { "count": N, "documents": [...] } - Documents that passed the threshold
-- "unfiltered": { "count": N, "documents": [...] } - ALL documents found, regardless of threshold
+IMPORTANT: Repository owner defaults to "Golgoroth22" if not specified.
+When user mentions just a repository name (e.g., "AI-with-Love"), assume owner is "Golgoroth22".
+Only ask for owner if user explicitly mentions a different owner/organization.
 
-How to Handle Results:
-1. Check filteredResults.count first
-2. If filteredResults.count > 0: Use those documents (they're high quality)
-3. If filteredResults.count = 0 BUT unfiltered.count > 0:
-   - Use the TOP 3 documents from unfiltered.documents
-   - Check their "similarity" scores (will be around 0.4-0.6)
-   - State clearly that relevance is lower than ideal
-   - Still provide helpful answer with citations from these documents
-4. ONLY say "Релевантных документов не найдено" if BOTH filteredResults.count = 0 AND unfiltered.count = 0
+Summarize results clearly in Russian with code blocks for code snippets.
+Include links when available.
+                """.trimIndent()
+            )
+        }
 
-Citation Requirements:
-- Each document has a "citation" field - use it exactly as provided
-- Include inline citations for EVERY fact: [filename, page, chunk]
-- After your answer, add "Источники:" section listing all unique sources
-- Every statement must reference a source
+        if (useLocalGitTools) {
+            instructions.add(
+                """
+Local Git Operations:
+- Use git_status to check repository status (modified files, current branch, ahead/behind remote)
+- Use git_branch to list all local and remote branches
+- Use git_diff to see file changes (unstaged or staged)
+- Use git_pr_status to check if there are open PRs for the current branch
 
-Example with low-similarity results:
-"Хотя найденные документы имеют низкую релевантность (similarity 0.48-0.62), вот информация из базы:
-Bakemono Archers — юнит Horde [unknown, фрагмент 3]. ...
+Repository path: /Users/falin/AndroidStudioProjects/AI-with-Love
 
-Источники (низкая релевантность):
-- unknown (фрагмент 3)"
+Example questions:
+- "какая текущая ветка?" → use git_status or git_branch
+- "какие файлы изменены?" → use git_status
+- "покажи diff для файла X" → use git_diff with filepath parameter
+- "есть ли открытые PR?" → use git_pr_status
 
-DO NOT ignore unfiltered documents when filteredResults is empty. Always check BOTH fields.""".trimIndent())
+Respond in Russian with clear formatting. Use code blocks for diffs and file lists.
+                """.trimIndent()
+            )
         }
 
         return instructions.joinToString("\n\n")
@@ -673,8 +832,12 @@ DO NOT ignore unfiltered documents when filteredResults is empty. Always check B
                 if (textString != null) {
                     // Parse the nested JSON string into SemanticSearchResult
                     Json.decodeFromString<SemanticSearchResult>(textString)
-                } else null
-            } else null
+                } else {
+                    null
+                }
+            } else {
+                null
+            }
         }.getOrNull()
 
     private fun loadChatHistory() {
@@ -716,6 +879,14 @@ DO NOT ignore unfiltered documents when filteredResults is empty. Always check B
     fun sendMessage(userMessage: String) {
         if (userMessage.isBlank() || _isLoading.value) return
 
+        // Intercept /help command
+        if (userMessage.trimStart().startsWith("/help")) {
+            viewModelScope.launch(Dispatchers.IO) {
+                handleHelpCommand(userMessage)
+            }
+            return
+        }
+
         val userMsg =
             Message(
                 text = userMessage,
@@ -742,18 +913,17 @@ DO NOT ignore unfiltered documents when filteredResults is empty. Always check B
         val thinkingMessageIndex = _messages.value.size - 1
 
         viewModelScope.launch(Dispatchers.IO) {
-            val useJokeTools = isJokeServerEnabled() && userMentionsJokes(userMessage)
-            val useSemanticSearch = isJokeServerEnabled() && userMentionsSemanticSearch(userMessage)
-            logD("🎭 Use Agentic API with joke tools: $useJokeTools, semantic search: $useSemanticSearch")
-            sendWithAgenticApi(userMessage, thinkingMessageIndex, useJokeTools, useSemanticSearch)
+            val useGitHubTools = isGitHubServerEnabled() && userMentionsGitHub(userMessage)
+            val useLocalGitTools = isLocalGitServerEnabled() && userMentionsLocalGit(userMessage)
+            logD("🌐 GitHub: $useGitHubTools, LocalGit: $useLocalGitTools")
+            sendWithAgenticApi(userMessage, thinkingMessageIndex, false)
         }
     }
 
     private suspend fun sendWithAgenticApi(
         userMessage: String,
         thinkingMessageIndex: Int,
-        useJokeTools: Boolean = false,
-        useSemanticSearch: Boolean = false
+        useJokeTools: Boolean = false
     ) {
         val capturedMcpToolInfoList = mutableListOf<McpToolInfo>()
 
@@ -766,26 +936,33 @@ DO NOT ignore unfiltered documents when filteredResults is empty. Always check B
                     userMessage
                 }
 
-            if (useJokeTools && userWantsToSaveJoke(userMessage) && lastJokeResult != null) {
-                input = "$input\n\nLast joke from JokeAPI: $lastJokeResult"
-                logD("🔧 Adding last joke result to context for saving")
-            }
+            // Detect GitHub and Local Git mentions
+            val useGitHubTools = isGitHubServerEnabled() && userMentionsGitHub(userMessage)
+            val useLocalGitTools = isLocalGitServerEnabled() && userMentionsLocalGit(userMessage)
 
-            val tools = buildList {
-                if (useJokeTools) {
-                    add(buildAgenticJokeTool())
-                    add(buildSaveJokeTool())
-                    add(buildGetSavedJokesTool())
-                    add(buildRunTestsTool())
-                }
-                if (useSemanticSearch) {
-                    add(buildSemanticSearchTool())
-                }
-            }.takeIf { it.isNotEmpty() }
+            val tools =
+                buildList {
+                    if (useGitHubTools) {
+                        // Add GitHub tools
+                        add(buildGetRepoTool())
+                        add(buildSearchCodeTool())
+                        add(buildCreateIssueTool())
+                        add(buildListIssuesTool())
+                        add(buildListCommitsTool())
+                        add(buildGetRepoContentTool())
+                    }
+                    if (useLocalGitTools) {
+                        // Add Local Git tools
+                        add(buildGitStatusTool())
+                        add(buildGitBranchTool())
+                        add(buildGitDiffTool())
+                        add(buildGitPrStatusTool())
+                    }
+                }.takeIf { it.isNotEmpty() }
 
-            val instructions = buildInstructions(useJokeTools, useSemanticSearch)
+            val instructions = buildInstructions(useJokeTools, false, useGitHubTools, useLocalGitTools)
 
-            logD("📤 Sending Agentic request with ${tools?.size ?: 0} tools")
+            logD("📤 Sending Agentic request with ${tools?.size ?: 0} tools (GitHub: $useGitHubTools, LocalGit: $useLocalGitTools)")
 
             var response =
                 perplexityService.sendAgenticRequest(
@@ -814,18 +991,15 @@ DO NOT ignore unfiltered documents when filteredResults is empty. Always check B
 
                     if (executionResult.mcpToolInfo != null) {
                         capturedMcpToolInfoList.add(executionResult.mcpToolInfo)
-                        if (toolName == "get_joke") {
-                            lastJokeResult = executionResult.result
-                            containsJokeTool = true
-                        }
                     }
                 }
 
-                val instruction = if (containsJokeTool) {
-                    "Please use these results to complete your response. Translate the joke to Russian."
-                } else {
-                    "Please use these results to complete your response."
-                }
+                val instruction =
+                    if (containsJokeTool) {
+                        "Please use these results to complete your response. Translate the joke to Russian."
+                    } else {
+                        "Please use these results to complete your response."
+                    }
 
                 currentInput =
                     "$currentInput\n\nTool results:\n${toolResults.joinToString(
@@ -948,40 +1122,12 @@ DO NOT ignore unfiltered documents when filteredResults is empty. Always check B
 
             val finalMessages = _messages.value.toMutableList()
             if (messageIndex < finalMessages.size) {
-                // Extract server logs if this was a run_tests call and save to file
-                val logFilePath =
-                    mcpToolInfo?.firstOrNull { it.toolName == "run_tests" }?.let { toolInfo ->
-                        try {
-                            val responseJson = Json.parseToJsonElement(toolInfo.responseBody) as? JsonObject
-                            val serverLogsValue = responseJson?.get("server_logs") as? JsonPrimitive
-                            val outputValue = responseJson?.get("output") as? JsonPrimitive
-                            val logsContent =
-                                buildString {
-                                    serverLogsValue?.content?.let { appendLine(it) }
-                                    outputValue?.content?.let {
-                                        appendLine("\n--- Test Output ---")
-                                        appendLine(it)
-                                    }
-                                }
-
-                            if (logsContent.isNotBlank()) {
-                                saveLogsToFile(logsContent)
-                            } else {
-                                null
-                            }
-                        } catch (e: Exception) {
-                            logE("Failed to extract and save server logs", e)
-                            null
-                        }
-                    }
-
                 val assistantMessage =
                     finalMessages[messageIndex].copy(
                         text = fullText,
                         promptTokens = promptTokens,
                         completionTokens = completionTokens,
-                        mcpToolInfo = mcpToolInfo,
-                        attachedLogFile = logFilePath
+                        mcpToolInfo = mcpToolInfo
                     )
                 finalMessages[messageIndex] = assistantMessage
                 _messages.value = finalMessages
@@ -1143,6 +1289,253 @@ $conversationText
         }
     }
 
+    /**
+     * Parse /help command and extract query
+     * Returns null if no valid query
+     */
+    private fun parseHelpCommand(message: String): String? {
+        val trimmed = message.trim()
+        if (!trimmed.startsWith("/help")) return null
+
+        val query = trimmed.removePrefix("/help").trim()
+        return if (query.isNotEmpty()) query else null
+    }
+
+    /**
+     * Handle /help slash command
+     * Searches local embeddings and sends augmented message to AI
+     */
+    private suspend fun handleHelpCommand(message: String) {
+        val query =
+            parseHelpCommand(message) ?: run {
+                addCommandErrorMessage("Usage: /help <your question>")
+                return
+            }
+
+        // Show user message
+        val userMsg =
+            Message(
+                text = "Help: $query",
+                isFromUser = true,
+                isHelpCommand = true
+            )
+        withContext(Dispatchers.Main) {
+            _messages.value = _messages.value + userMsg
+            _isLoading.value = true
+        }
+        userMessagesCountSinceAppLaunch++
+
+        runAndCatch {
+            // 1. Check if database has documents
+            val totalChunks = embeddingsRepository.getChunksCount()
+            if (totalChunks == 0) {
+                addCommandErrorMessage(
+                    "No documents indexed yet. Please go to Ollama screen to index documents first."
+                )
+                return@runAndCatch
+            }
+
+            logD("🔍 /help command: searching for '$query' in $totalChunks chunks")
+
+            // 2. Generate embedding for query
+            val queryEmbedding =
+                try {
+                    ollamaClient.generateEmbedding(query)
+                } catch (e: Exception) {
+                    addCommandErrorMessage(
+                        "Cannot generate embedding. Is Ollama running on your machine?"
+                    )
+                    logE("Ollama error during /help command", e)
+                    return@runAndCatch
+                }
+
+            // 3. Search local database
+            val threshold = _searchThreshold.value.toDouble()
+            val results =
+                embeddingsRepository.searchSimilar(
+                    queryEmbedding = queryEmbedding,
+                    limit = 5,
+                    threshold = threshold
+                )
+
+            logD("✅ Found ${results.size} results (threshold: $threshold)")
+
+            // 4. Update user message with docs count
+            val updatedUserMsg = userMsg.copy(helpDocsFound = results.size)
+            withContext(Dispatchers.Main) {
+                val currentMessages = _messages.value.toMutableList()
+                val userMsgIndex = currentMessages.lastIndexOf(userMsg)
+                if (userMsgIndex >= 0) {
+                    currentMessages[userMsgIndex] = updatedUserMsg
+                    _messages.value = currentMessages
+                }
+            }
+
+            // 5. Save user message to database
+            chatRepository.saveUserMessage(updatedUserMsg)
+
+            // 6. Format context and send to AI
+            val contextMessage = formatHelpContext(query, results, threshold)
+            sendToAIWithHelpContext(contextMessage, query, results.size)
+        }.onFailure { error ->
+            addCommandErrorMessage("Search failed: ${error.message}")
+            logE("Help command failed", error)
+            withContext(Dispatchers.Main) {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Format search results as context for AI
+     */
+    private fun formatHelpContext(
+        query: String,
+        results: List<SimilarChunk>,
+        threshold: Double
+    ): String {
+        val sb = StringBuilder()
+
+        sb.appendLine("User question: $query")
+        sb.appendLine()
+
+        if (results.isEmpty()) {
+            sb.appendLine("No relevant documents found in the local database (threshold: ${(threshold * 100).toInt()}%).")
+            sb.appendLine()
+            sb.appendLine(
+                "Please inform the user that you don't have documents on this topic. You may answer from general knowledge if appropriate, but clarify that it's not based on the indexed documents."
+            )
+        } else {
+            sb.appendLine("Relevant documents found (${results.size} results, threshold: ${(threshold * 100).toInt()}%):")
+            sb.appendLine()
+
+            results.forEachIndexed { index, similarChunk ->
+                val doc = similarChunk.chunk
+                val similarity = (similarChunk.similarity * 100).toInt()
+
+                sb.appendLine("Document ${index + 1} (similarity: $similarity%):")
+                sb.appendLine("Source: [${doc.sourceFile}, chunk ${doc.chunkIndex + 1}/${doc.totalChunks}]")
+                sb.appendLine(doc.content)
+                sb.appendLine()
+            }
+
+            sb.appendLine(
+                "Please answer the user's question based on these documents. Include citations in your response using the format [filename, chunk X/Y]. If the documents don't fully answer the question, say so clearly."
+            )
+        }
+
+        return sb.toString()
+    }
+
+    /**
+     * Send help context to AI
+     */
+    private suspend fun sendToAIWithHelpContext(
+        contextMessage: String,
+        originalQuery: String,
+        docsFound: Int
+    ) {
+        // Add thinking message
+        val thinkingMessage =
+            Message(
+                text = "Analyzing documents...",
+                isFromUser = false
+            )
+        withContext(Dispatchers.Main) {
+            _messages.value = _messages.value + thinkingMessage
+        }
+        val thinkingMessageIndex = _messages.value.size - 1
+
+        // Send to AI (without tools)
+        runAndCatch {
+            val conversationContext = buildConversationContext()
+            val input =
+                if (conversationContext.isNotEmpty()) {
+                    "$conversationContext\n\n$contextMessage"
+                } else {
+                    contextMessage
+                }
+
+            val instructions = "You are a helpful assistant. The user asked a question and you have been provided with relevant documents from their indexed knowledge base. Answer based on these documents and cite sources. Respond in Russian."
+
+            logD("📤 Sending help query to AI with $docsFound documents")
+
+            val response =
+                perplexityService.sendAgenticRequest(
+                    input = input,
+                    model = AGENTIC_MODEL,
+                    instructions = instructions,
+                    tools = null // NO TOOLS for /help command
+                ).getOrThrow()
+
+            val fullResponse = extractTextFromResponse(response)
+            val usage = response.usage
+            val promptTokens = usage?.inputTokens ?: 0
+            val completionTokens = usage?.outputTokens ?: 0
+
+            logD("✅ Received AI response for /help command")
+
+            // Replace thinking message with real response
+            withContext(Dispatchers.Main) {
+                val currentMessages = _messages.value.toMutableList()
+                if (thinkingMessageIndex < currentMessages.size) {
+                    currentMessages[thinkingMessageIndex] =
+                        Message(
+                            text = "",
+                            isFromUser = false,
+                            promptTokens = promptTokens,
+                            completionTokens = completionTokens
+                        )
+                    _messages.value = currentMessages
+                }
+            }
+
+            // Typewriter effect
+            typewriterEffect(
+                fullResponse,
+                thinkingMessageIndex,
+                promptTokens,
+                completionTokens,
+                mcpToolInfo = null
+            )
+
+            // Check compression
+            if (shouldCompressDialog()) {
+                compressDialogWithNotification()
+            }
+        }.onFailure { error ->
+            logE("Error sending help query to AI", error)
+            withContext(Dispatchers.Main) {
+                val currentMessages = _messages.value.toMutableList()
+                if (thinkingMessageIndex < currentMessages.size) {
+                    currentMessages[thinkingMessageIndex] =
+                        Message(
+                            text = "Error: ${error.message ?: "Unknown error"}",
+                            isFromUser = false
+                        )
+                    _messages.value = currentMessages
+                }
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Add error message for command failures
+     */
+    private fun addCommandErrorMessage(errorText: String) {
+        viewModelScope.launch(Dispatchers.Main) {
+            val errorMsg =
+                Message(
+                    text = errorText,
+                    isFromUser = false,
+                    isSystemMessage = true
+                )
+            _messages.value = _messages.value + errorMsg
+            _isLoading.value = false
+        }
+    }
+
     companion object {
         private const val COMPRESSION_THRESHOLD = 5
         private const val AGENTIC_MODEL = "openai/gpt-5-mini"
@@ -1150,13 +1543,15 @@ $conversationText
             "Привет! Я ваш ИИ-помощник на базе Perplexity Agentic API " +
                 "(модель: $AGENTIC_MODEL).\n\n🗜️ Включено" +
                 " автоматическое сжатие диалога каждые $COMPRESSION_THRESHOLD ваших сообщений для" +
-                " оптимизации токенов!\n\n🎭 Включите JokeAPI MCP-сервер:\n" +
-                "• 'протестируй сервер' или 'запусти тесты' — проверить состояние сервера\n" +
-                "• 'шутка' или 'анекдот' — получить шутку\n" +
-                "• 'сохрани шутку' — сохранить в избранное\n" +
-                "• 'мои шутки' — показать сохранённые\n\n" +
-                "🌐 Семантический поиск в документах:\n" +
-                "• 'найди в документах', 'что такое', 'объясни', 'расскажи о' — поиск релевантной информации\n\n" +
+                " оптимизации токенов!\n\n" +
+                "📚 Работа с документами (экран Ollama):\n" +
+                "• Загружайте PDF, TXT или MD файлы для индексации\n" +
+                "• Локальная обработка через Ollama (nomic-embed-text)\n" +
+                "• Настройте порог релевантности (0.3-0.95) с помощью слайдера\n\n" +
+                "🔍 Команда /help для поиска в документах:\n" +
+                "• Используйте: /help <ваш вопрос>\n" +
+                "• Пример: /help что такое архитектура проекта?\n" +
+                "• Быстрый поиск по индексированным документам с цитатами\n\n" +
                 "Чем могу помочь?"
     }
 }
