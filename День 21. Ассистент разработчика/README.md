@@ -1,91 +1,87 @@
 # День 21. Ассистент разработчика
 
-1. Используйте RAG для подключения к документации вашего проекта (README, API, схемы данных)
-2. Через MCP подключите ассистента к текущему git-репозиторию (например, чтобы он понимал текущую ветку или открытые файлы)
-3. Настройте команду /help, которая отвечает на вопросы о проекте, подсказывая фрагменты кода или правила стиля
+## Задачи
 
-- `Результат`: 
-1. README + 1 папка project/docs в RAG
-2. MCP только для получения текущей ветки (git branch)
-3. Команда /help отвечает на вопросы о структуре проекта
-- `Формат`: Видео + Код
+1. 📚 Используйте RAG для подключения к документации вашего проекта (README, API, схемы данных)
+2. 🔧 Через MCP подключите ассистента к текущему git-репозиторию (например, чтобы он понимал текущую ветку или открытые файлы)
+3. 💡 Настройте команду `/help`, которая отвечает на вопросы о проекте, подсказывая фрагменты кода или правила стиля
 
-[Видео результата](https://drive.google.com/file/d/1U3V_5aJQ008GaL6UYHRZfMUpDTTqwSFu/view?usp=sharing)
+## Результат
 
-Код mcp-сервера в директории **server/**
+1. ✅ README + 1 папка project/docs в RAG
+2. ✅ MCP только для получения текущей ветки (git branch)
+3. ✅ Команда `/help` отвечает на вопросы о структуре проекта
+
+**Формат**: Видео + Код
+
+📹 [Видео результата](https://drive.google.com/file/d/1U3V_5aJQ008GaL6UYHRZfMUpDTTqwSFu/view?usp=sharing)
+
+💻 Код MCP-сервера в директории **server/**
+
+---
 
 
-🔍 RAG & Document Processing Tools (6 tools)                                                                                                                         
-┌─────────────────────┬────────────────────────────────────────────────────────────────────────────────────────┬────────────┐
-│        Tool         │                                      Description                                       │   Server   │                                        
-├─────────────────────┼────────────────────────────────────────────────────────────────────────────────────────┼────────────┤
-│ semantic_search     │ Search for relevant document chunks using semantic similarity with threshold filtering │ RAG Server │
-├─────────────────────┼────────────────────────────────────────────────────────────────────────────────────────┼────────────┤
-│ create_embedding    │ Generate embeddings for text using Ollama nomic-embed-text model                       │ RAG Server │
-├─────────────────────┼────────────────────────────────────────────────────────────────────────────────────────┼────────────┤
-│ save_document       │ Save a document with its embedding and citation info to local database                 │ RAG Server │
-├─────────────────────┼────────────────────────────────────────────────────────────────────────────────────────┼────────────┤
-│ search_similar      │ Search for similar documents using cosine similarity in local database                 │ RAG Server │
-├─────────────────────┼────────────────────────────────────────────────────────────────────────────────────────┼────────────┤
-│ process_pdf         │ Extract text from PDF, chunk it, and save with embeddings                              │ RAG Server │
-├─────────────────────┼────────────────────────────────────────────────────────────────────────────────────────┼────────────┤
-│ process_text_chunks │ Process extracted text into chunks with embeddings (parallel processing)               │ RAG Server │
-└─────────────────────┴────────────────────────────────────────────────────────────────────────────────────────┴────────────┘
-🐙 GitHub MCP Tools (6 tools)
-┌──────────────────┬───────────────────────────────────────────────────────────────────────────────┬───────────────────────┐
-│       Tool       │                                  Description                                  │     Activated By      │
-├──────────────────┼───────────────────────────────────────────────────────────────────────────────┼───────────────────────┤
-│ get_repo         │ Get detailed info about a GitHub repository (stars, forks, description, etc.) │ "GitWithLove" keyword │
-├──────────────────┼───────────────────────────────────────────────────────────────────────────────┼───────────────────────┤
-│ search_code      │ Search for code across GitHub repositories using GitHub's search syntax       │ "GitWithLove" keyword │
-├──────────────────┼───────────────────────────────────────────────────────────────────────────────┼───────────────────────┤
-│ create_issue     │ Create a new issue in a GitHub repository                                     │ "GitWithLove" keyword │
-├──────────────────┼───────────────────────────────────────────────────────────────────────────────┼───────────────────────┤
-│ list_issues      │ List issues from a repository (filter by state: open/closed/all)              │ "GitWithLove" keyword │
-├──────────────────┼───────────────────────────────────────────────────────────────────────────────┼───────────────────────┤
-│ list_commits     │ List commit history from a repository                                         │ "GitWithLove" keyword │
-├──────────────────┼───────────────────────────────────────────────────────────────────────────────┼───────────────────────┤
-│ get_repo_content │ Get file contents or directory listing from a GitHub repository               │ "GitWithLove" keyword │
-└──────────────────┴───────────────────────────────────────────────────────────────────────────────┴───────────────────────┘
-🌿 Local Git Tools (4 tools)
-┌───────────────┬────────────────────────────────────────────────────────────────────────────────────────────┬────────────────────┐
-│     Tool      │                                        Description                                         │    Activated By    │
-├───────────────┼────────────────────────────────────────────────────────────────────────────────────────────┼────────────────────┤
-│ git_status    │ Get current repository status (modified files, staged files, current branch, ahead/behind) │ "GitLocal" keyword │
-├───────────────┼────────────────────────────────────────────────────────────────────────────────────────────┼────────────────────┤
-│ git_branch    │ List all local and remote branches, showing which is currently active                      │ "GitLocal" keyword │
-├───────────────┼────────────────────────────────────────────────────────────────────────────────────────────┼────────────────────┤
-│ git_diff      │ Get diff for files (unstaged or staged changes)                                            │ "GitLocal" keyword │
-├───────────────┼────────────────────────────────────────────────────────────────────────────────────────────┼────────────────────┤
-│ git_pr_status │ Check pull request status for current branch by combining local git info with GitHub API   │ "GitLocal" keyword │
-└───────────────┴────────────────────────────────────────────────────────────────────────────────────────────┴────────────────────┘
-🧪 Legacy Tools (4 tools - still in code but from earlier days)
-┌─────────────────┬──────────────────────────┬───────────────────────────────┐
-│      Tool       │       Description        │            Status             │
-├─────────────────┼──────────────────────────┼───────────────────────────────┤
-│ get_joke        │ Fetch jokes from JokeAPI │ Working but not actively used │
-├─────────────────┼──────────────────────────┼───────────────────────────────┤
-│ save_joke       │ Save a joke to database  │ Working but not actively used │
-├─────────────────┼──────────────────────────┼───────────────────────────────┤
-│ get_saved_jokes │ Retrieve saved jokes     │ Working but not actively used │
-├─────────────────┼──────────────────────────┼───────────────────────────────┤
-│ run_tests       │ Run MCP server tests     │ Working but not actively used │
-└─────────────────┴──────────────────────────┴───────────────────────────────┘
-  ---
-📊 Summary
+## 🔍 RAG & Document Processing Tools (6 инструментов)
 
-- Total Tools: 20
-    - RAG/Embeddings: 6 tools
-    - GitHub MCP: 6 tools
-    - Local Git: 4 tools
-    - Legacy: 4 tools
+| Инструмент | Описание | Сервер |
+|------------|----------|--------|
+| `semantic_search` | Семантический поиск по документам с фильтрацией по порогу схожести | RAG Server |
+| `create_embedding` | Генерация эмбеддингов для текста через Ollama (модель nomic-embed-text) | RAG Server |
+| `save_document` | Сохранение документа с его эмбеддингом и метаданными в локальную базу | RAG Server |
+| `search_similar` | Поиск похожих документов через косинусное сходство в локальной базе | RAG Server |
+| `process_pdf` | Извлечение текста из PDF, разбиение на чанки и сохранение с эмбеддингами | RAG Server |
+| `process_text_chunks` | Обработка текста в чанки с генерацией эмбеддингов (параллельная обработка) | RAG Server |
 
-🎯 How to Use
+---
 
-1. Document Search: Use /help <question> for local RAG search
-2. GitHub Operations: Include "GitWithLove" in your message
-3. Local Git: Include "GitLocal" in your message
-4. RAG Tools: Automatically used when documents are indexed via Ollama screen
+## 🐙 GitHub MCP Tools (6 инструментов)
+
+| Инструмент | Описание | Активация |
+|------------|----------|-----------|
+| `get_repo` | Получение детальной информации о GitHub-репозитории (звёзды, форки, описание и т.д.) | Ключевое слово "GitWithLove" |
+| `search_code` | Поиск кода в GitHub-репозиториях с использованием синтаксиса поиска GitHub | Ключевое слово "GitWithLove" |
+| `create_issue` | Создание нового issue в GitHub-репозитории | Ключевое слово "GitWithLove" |
+| `list_issues` | Список issues из репозитория (фильтр: open/closed/all) | Ключевое слово "GitWithLove" |
+| `list_commits` | Список истории коммитов из репозитория | Ключевое слово "GitWithLove" |
+| `get_repo_content` | Получение содержимого файла или списка файлов из GitHub-репозитория | Ключевое слово "GitWithLove" |
+
+---
+
+## 🌿 Local Git Tools (4 инструмента)
+
+| Инструмент | Описание | Активация |
+|------------|----------|-----------|
+| `git_status` | Получение текущего статуса репозитория (изменённые файлы, staged-файлы, текущая ветка, ahead/behind) | Ключевое слово "GitLocal" |
+| `git_branch` | Список всех локальных и удалённых веток с указанием текущей активной | Ключевое слово "GitLocal" |
+| `git_diff` | Получение diff для файлов (unstaged или staged изменения) | Ключевое слово "GitLocal" |
+| `git_pr_status` | Проверка статуса pull request для текущей ветки (комбинация локального git и GitHub API) | Ключевое слово "GitLocal" |
+
+---
+
+## 🧪 Legacy Tools (4 инструмента - ещё в коде, но из ранних дней)
+
+| Инструмент | Описание | Статус |
+|------------|----------|--------|
+| `get_joke` | Получение шуток из JokeAPI | Работает, но не используется активно |
+| `save_joke` | Сохранение шутки в базу данных | Работает, но не используется активно |
+| `get_saved_jokes` | Получение сохранённых шуток | Работает, но не используется активно |
+| `run_tests` | Запуск тестов MCP-сервера | Работает, но не используется активно |
+
+---
+## 📊 Итоговая сводка
+
+- **Всего инструментов**: 20
+    - RAG/Эмбеддинги: 6 инструментов
+    - GitHub MCP: 6 инструментов
+    - Локальный Git: 4 инструмента
+    - Legacy: 4 инструмента
+
+## 🎯 Как использовать
+
+1. **Поиск по документам**: Используйте `/help <вопрос>` для локального RAG-поиска
+2. **Операции с GitHub**: Включите ключевое слово "GitWithLove" в ваше сообщение
+3. **Локальный Git**: Включите ключевое слово "GitLocal" в ваше сообщение
+4. **RAG инструменты**: Автоматически используются при индексации документов через экран Ollama
 
 
 
