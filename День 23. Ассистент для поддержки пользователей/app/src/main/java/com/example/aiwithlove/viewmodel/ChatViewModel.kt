@@ -86,8 +86,6 @@ class ChatViewModel(
         logD("🎚️ Search threshold updated to ${_searchThreshold.value}")
     }
 
-    private fun isJokeServerEnabled(): Boolean = _mcpServers.value.any { it.id == "jokes" && it.isEnabled }
-
     private fun userMentionsGitHub(message: String): Boolean {
         val lowerMessage = message.lowercase()
         return lowerMessage.contains("gitwithlove")
@@ -106,9 +104,10 @@ class ChatViewModel(
         val lowerMessage = message.lowercase()
 
         // Direct keyword detection
-        val hasKeyword = lowerMessage.contains("reviewpr") ||
-                        lowerMessage.contains("код-ревью") ||
-                        lowerMessage.contains("code review")
+        val hasKeyword =
+            lowerMessage.contains("reviewpr") ||
+                lowerMessage.contains("код-ревью") ||
+                lowerMessage.contains("code review")
 
         if (hasKeyword) return true
 
@@ -117,15 +116,16 @@ class ChatViewModel(
         if (message.trim().length < 30 && message.contains("#")) {
             // Check last 5 messages for code review context
             val recentMessages = _messages.value.takeLast(5)
-            val hasRecentCodeReviewContext = recentMessages.any { msg ->
-                msg.text.lowercase().let { text ->
-                    text.contains("reviewpr") ||
-                    text.contains("код-ревью") ||
-                    text.contains("code review") ||
-                    text.contains("pull request") ||
-                    text.contains("pr #")
+            val hasRecentCodeReviewContext =
+                recentMessages.any { msg ->
+                    msg.text.lowercase().let { text ->
+                        text.contains("reviewpr") ||
+                            text.contains("код-ревью") ||
+                            text.contains("code review") ||
+                            text.contains("pull request") ||
+                            text.contains("pr #")
+                    }
                 }
-            }
             if (hasRecentCodeReviewContext) {
                 logD("🔍 Context-aware detection: continuing code review conversation")
                 return true
@@ -533,153 +533,6 @@ class ChatViewModel(
         logD("🔧 Executing agentic tool call: $toolName")
 
         return when (toolName) {
-            "get_joke" -> {
-                runAndCatch {
-                    val args =
-                        try {
-                            if (arguments != null) {
-                                val argsJson = Json.parseToJsonElement(arguments)
-                                if (argsJson is JsonObject) {
-                                    mapOf(
-                                        "category" to ((argsJson["category"] as? JsonPrimitive)?.content ?: "Any"),
-                                        "blacklistFlags" to
-                                            (
-                                                (argsJson["blacklistFlags"] as? JsonPrimitive)?.content
-                                                    ?: "nsfw,religious,political,racist,sexist,explicit"
-                                            )
-                                    )
-                                } else {
-                                    defaultJokeArgs()
-                                }
-                            } else {
-                                defaultJokeArgs()
-                            }
-                        } catch (e: Exception) {
-                            logE("🔧 Failed to parse tool arguments, using defaults", e)
-                            defaultJokeArgs()
-                        }
-
-                    val requestBody =
-                        Json.encodeToString(
-                            kotlinx.serialization.serializer<Map<String, String>>(),
-                            args
-                        )
-                    logD("🔧 Calling MCP server with args: $args")
-
-                    val enabledServers = _mcpServers.value.filter { it.isEnabled }.map { it.id }
-                    val mcpResult = mcpClientManager.callTool("get_joke", args, enabledServers)
-                    logD("🔧 MCP result: $mcpResult")
-
-                    val parsedResult = parseJokeFromMcpResult(mcpResult)
-
-                    ToolExecutionResult(
-                        result = parsedResult,
-                        mcpToolInfo =
-                            McpToolInfo(
-                                toolName = "get_joke",
-                                requestBody = requestBody,
-                                responseBody = parsedResult
-                            )
-                    )
-                }.getOrElse { error ->
-                    logE("🔧 Tool execution failed", error)
-                    ToolExecutionResult(
-                        result = """{"error": true, "message": "${error.message}"}""",
-                        mcpToolInfo = null
-                    )
-                }
-            }
-
-            "save_joke" -> {
-                runAndCatch {
-                    val args = parseToolArguments(arguments)
-                    val requestBody = arguments ?: "{}"
-                    logD("🔧 Calling MCP server save_joke with args: $args")
-
-                    val enabledServers = _mcpServers.value.filter { it.isEnabled }.map { it.id }
-                    val mcpResult = mcpClientManager.callTool("save_joke", args, enabledServers)
-                    logD("🔧 MCP result: $mcpResult")
-
-                    val parsedResult = parseJokeFromMcpResult(mcpResult)
-
-                    ToolExecutionResult(
-                        result = parsedResult,
-                        mcpToolInfo =
-                            McpToolInfo(
-                                toolName = "save_joke",
-                                requestBody = requestBody,
-                                responseBody = parsedResult
-                            )
-                    )
-                }.getOrElse { error ->
-                    logE("🔧 Tool execution failed", error)
-                    ToolExecutionResult(
-                        result = """{"error": true, "message": "${error.message}"}""",
-                        mcpToolInfo = null
-                    )
-                }
-            }
-
-            "get_saved_jokes" -> {
-                runAndCatch {
-                    val args = parseToolArguments(arguments)
-                    val requestBody = arguments ?: "{}"
-                    logD("🔧 Calling MCP server get_saved_jokes with args: $args")
-
-                    val enabledServers = _mcpServers.value.filter { it.isEnabled }.map { it.id }
-                    val mcpResult = mcpClientManager.callTool("get_saved_jokes", args, enabledServers)
-                    logD("🔧 MCP result: $mcpResult")
-
-                    val parsedResult = parseJokeFromMcpResult(mcpResult)
-
-                    ToolExecutionResult(
-                        result = parsedResult,
-                        mcpToolInfo =
-                            McpToolInfo(
-                                toolName = "get_saved_jokes",
-                                requestBody = requestBody,
-                                responseBody = parsedResult
-                            )
-                    )
-                }.getOrElse { error ->
-                    logE("🔧 Tool execution failed", error)
-                    ToolExecutionResult(
-                        result = """{"error": true, "message": "${error.message}"}""",
-                        mcpToolInfo = null
-                    )
-                }
-            }
-
-            "run_tests" -> {
-                runAndCatch {
-                    val args = parseToolArguments(arguments)
-                    val requestBody = arguments ?: "{}"
-                    logD("🧪 Calling MCP server run_tests")
-
-                    val enabledServers = _mcpServers.value.filter { it.isEnabled }.map { it.id }
-                    val mcpResult = mcpClientManager.callTool("run_tests", args, enabledServers)
-                    logD("🧪 MCP result: $mcpResult")
-
-                    val parsedResult = parseJokeFromMcpResult(mcpResult)
-
-                    ToolExecutionResult(
-                        result = parsedResult,
-                        mcpToolInfo =
-                            McpToolInfo(
-                                toolName = "run_tests",
-                                requestBody = requestBody,
-                                responseBody = parsedResult
-                            )
-                    )
-                }.getOrElse { error ->
-                    logE("🧪 Tool execution failed", error)
-                    ToolExecutionResult(
-                        result = """{"error": true, "message": "${error.message}"}""",
-                        mcpToolInfo = null
-                    )
-                }
-            }
-
             // GitHub tools
             "get_repo", "search_code", "create_issue", "list_issues",
             "list_commits", "get_repo_content", "get_pull_request", "get_pr_files" -> {
@@ -804,57 +657,17 @@ class ChatViewModel(
         }
     }
 
-    private fun defaultJokeArgs() =
-        mapOf(
-            "category" to "Any",
-            "blacklistFlags" to "nsfw,religious,political,racist,sexist,explicit"
-        )
-
-    private fun userWantsToSaveJoke(message: String): Boolean {
-        val lowerMessage = message.lowercase()
-        val savePatterns =
-            listOf(
-                Regex("""сохрани\s+(её|ее|его|их|эту\s+шутку|шутку)"""),
-                Regex("""запомни\s+(её|ее|его|их|эту\s+шутку|шутку)"""),
-                Regex("""добавь\s+(её|ее|его|их)\s+(в\s+избранное)?"""),
-                Regex("""добавь\s+в\s+избранное""")
-            )
-        return savePatterns.any { it.find(lowerMessage) != null }
-    }
-
     private fun buildInstructions(
-        useJokeTools: Boolean,
         useSemanticSearch: Boolean,
         useGitHubTools: Boolean,
         useLocalGitTools: Boolean,
         useCodeReview: Boolean = false
     ): String {
         val baseInstruction = "You are a helpful assistant. Respond in Russian."
-        if (!useJokeTools && !useSemanticSearch && !useGitHubTools && !useLocalGitTools && !useCodeReview) return baseInstruction
+        if (!useSemanticSearch && !useGitHubTools && !useLocalGitTools && !useCodeReview) return baseInstruction
 
         val instructions = mutableListOf<String>()
         instructions.add(baseInstruction)
-
-        if (useJokeTools) {
-            instructions.add(
-                """
-When user asks for a joke, use the get_joke tool and translate the result to Russian.
-When user asks to save a joke, use the save_joke tool with the TRANSLATED Russian version. Extract from the most recent get_joke tool result: joke_api_id (from "id" field), category, type. For the joke text, use your translated Russian version - either joke_text (for type="single") or setup and delivery (for type="twopart").
-When user asks for saved/favorite jokes, use the get_saved_jokes tool. Present the jokes in a nice format.
-When user asks to run tests or check the server, use ONLY the run_tests tool. IMPORTANT:
-- Do NOT call any other tools (like get_joke) after run_tests
-- Keep your response EXTREMELY SHORT using this EXACT format:
-🧪 run_tests:
-[passed] - passed
-[failed] - failed
-Tests count: [tests_run]
-Executing time: [execution_time]
-
-- Use ONLY numbers, no extra text
-- Do NOT add explanations, jokes, or additional content
-                """.trimIndent()
-            )
-        }
 
         if (useGitHubTools) {
             instructions.add(
@@ -1084,14 +897,13 @@ Example format:
             val useGitHubTools = isGitHubServerEnabled() && userMentionsGitHub(userMessage)
             val useLocalGitTools = isLocalGitServerEnabled() && userMentionsLocalGit(userMessage)
             logD("🌐 GitHub: $useGitHubTools, LocalGit: $useLocalGitTools")
-            sendWithAgenticApi(userMessage, thinkingMessageIndex, false)
+            sendWithAgenticApi(userMessage, thinkingMessageIndex)
         }
     }
 
     private suspend fun sendWithAgenticApi(
         userMessage: String,
-        thinkingMessageIndex: Int,
-        useJokeTools: Boolean = false
+        thinkingMessageIndex: Int
     ) {
         val capturedMcpToolInfoList = mutableListOf<McpToolInfo>()
 
@@ -1134,9 +946,18 @@ Example format:
                     }
                 }.takeIf { it.isNotEmpty() }
 
-            val instructions = buildInstructions(useJokeTools, false, useGitHubTools, useLocalGitTools, useCodeReview)
+            val instructions =
+                buildInstructions(
+                    useSemanticSearch = false,
+                    useGitHubTools = useGitHubTools,
+                    useLocalGitTools = useLocalGitTools,
+                    useCodeReview = useCodeReview
+                )
 
-            logD("📤 Sending Agentic request with ${tools?.size ?: 0} tools (GitHub: $useGitHubTools, LocalGit: $useLocalGitTools, CodeReview: $useCodeReview)")
+            logD(
+                "📤 Sending Agentic request with ${tools?.size ?: 0} tools " +
+                    "(GitHub: $useGitHubTools, LocalGit: $useLocalGitTools, CodeReview: $useCodeReview)"
+            )
 
             var response =
                 perplexityService.sendAgenticRequest(
@@ -1630,7 +1451,10 @@ $conversationText
                     contextMessage
                 }
 
-            val instructions = "You are a helpful assistant. The user asked a question and you have been provided with relevant documents from their indexed knowledge base. Answer based on these documents and cite sources. Respond in Russian."
+            val instructions =
+                "You are a helpful assistant. The user asked a question and you have been provided with " +
+                    "relevant documents from their indexed knowledge base. Answer based on these documents " +
+                    "and cite sources. Respond in Russian."
 
             logD("📤 Sending help query to AI with $docsFound documents")
 

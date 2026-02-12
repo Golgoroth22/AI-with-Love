@@ -80,18 +80,6 @@ The system supports multiple message types:
 
 The system automatically detects user intent through keyword matching:
 
-#### Joke Tools Detection
-```kotlin
-private fun userMentionsJokes(message: String): Boolean {
-    val lowerMessage = message.lowercase()
-    val keywords = listOf(
-        "шутк", "анекдот", "смешн",
-        "joke", "funny", "humor"
-    )
-    return keywords.any { lowerMessage.contains(it) }
-}
-```
-
 #### Semantic Search Detection
 ```kotlin
 private fun userMentionsSemanticSearch(message: String): Boolean {
@@ -119,12 +107,6 @@ Based on detected keywords, the system dynamically builds the tool list sent to 
 
 ```kotlin
 val tools = buildList {
-    if (useJokeTools) {
-        add(buildAgenticJokeTool())      // get_joke
-        add(buildSaveJokeTool())          // save_joke
-        add(buildGetSavedJokesTool())     // get_saved_jokes
-        add(buildRunTestsTool())          // run_tests
-    }
     if (useSemanticSearch) {
         add(buildSemanticSearchTool())    // semantic_search
     }
@@ -132,10 +114,8 @@ val tools = buildList {
 ```
 
 **Tool Count by Query Type:**
-- Only joke keywords: 4 tools (joke tools + run_tests)
-- Only semantic search keywords: 1 tool (semantic_search)
-- Both types of keywords: 5 tools (all combined)
-- Neither: 0 tools (null) - normal conversation
+- Semantic search keywords: 1 tool (semantic_search)
+- No relevant keywords: 0 tools (null) - normal conversation
 
 ### 2.3 Iterative Tool Loop
 
@@ -174,17 +154,13 @@ User Message → Keyword Detection → Tool Selection
      ↓
 Send to Perplexity API with tool definitions
      ↓
-API decides: "Call get_joke tool"
+API decides: "Call semantic_search tool"
      ↓
 Execute tool via McpClient → MCP Server
      ↓
 Submit tool result back to API
      ↓
-API decides: "Call save_joke tool" (iteration 2)
-     ↓
-Execute tool → Submit result
-     ↓
-API generates final response with joke
+API generates final response with results
      ↓
 Display to user
 ```
@@ -195,44 +171,7 @@ Display to user
 
 Each tool has a dedicated execution handler:
 
-#### Get Joke Tool (lines 298-351)
-```kotlin
-"get_joke" -> {
-    val category = args["category"]?.jsonPrimitive?.contentOrNull
-    val blacklistFlags = args["blacklistFlags"]?.jsonPrimitive?.contentOrNull
-
-    val result = mcpClient.callTool(
-        toolName = "get_joke",
-        arguments = buildJsonObject {
-            category?.let { put("category", it) }
-            blacklistFlags?.let { put("blacklistFlags", it) }
-        }
-    )
-
-    // Store last joke for potential save operation
-    lastJokeResult = result
-}
-```
-
-#### Save Joke Tool (lines 354-410)
-```kotlin
-"save_joke" -> {
-    // Uses lastJokeResult from previous get_joke call
-    val jokeData = lastJokeResult?.let { parseJokeResult(it) }
-
-    val result = mcpClient.callTool(
-        toolName = "save_joke",
-        arguments = buildJsonObject {
-            put("joke_api_id", jokeData.id)
-            put("category", jokeData.category)
-            put("type", jokeData.type)
-            // ... additional fields
-        }
-    )
-}
-```
-
-#### Semantic Search Tool (lines 441-490)
+#### Semantic Search Tool
 ```kotlin
 "semantic_search" -> {
     val query = args["query"]?.jsonPrimitive?.content ?: ""
@@ -531,59 +470,7 @@ private suspend fun displayMessageWithTypewriter(message: Message, index: Int) {
 
 **Timing**: 3 characters every 30ms = ~100 characters per second
 
-### 6.2 Log File Management
-
-**Implementation**: ChatViewModel.kt lines 502-527, ChatScreen.kt lines 916-941
-
-#### Test Result Capture
-```kotlin
-// Extract server logs from run_tests response
-val serverLogs = testResult["output"]?.jsonPrimitive?.content ?: ""
-
-// Save to file
-val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
-    .format(Date())
-val filename = "server_tests_$timestamp.log"
-
-saveLogFile(filename, serverLogs)
-```
-
-#### File Saving
-```kotlin
-private fun saveLogFile(filename: String, content: String) {
-    // Save to app's internal files directory
-    val file = File(context.filesDir, filename)
-
-    // Delete previous log files
-    context.filesDir.listFiles()
-        ?.filter { it.name.startsWith("server_tests_") && it.name != filename }
-        ?.forEach { it.delete() }
-
-    // Write new log file
-    file.writeText(content)
-
-    logD("💾 Saved log file: ${file.absolutePath}")
-}
-```
-
-#### Clickable Display
-```kotlin
-Card(
-    modifier = Modifier
-        .fillMaxWidth()
-        .clickable { openLogFile(file) }
-) {
-    Row {
-        Icon(Icons.Default.Description, "Log File")
-        Column {
-            Text(file.name, fontWeight = FontWeight.Bold)
-            Text("${file.length() / 1024} KB", fontSize = 12.sp)
-        }
-    }
-}
-```
-
-### 6.3 Conversation Context Management
+### 6.2 Conversation Context Management
 
 **Implementation**: ChatViewModel.kt lines 877-890
 
@@ -869,9 +756,9 @@ companion object {
         🎉 Добро пожаловать в AI with Love!
 
         Доступные функции:
-        🎭 Шутки от JokeAPI
         🌐 Семантический поиск в документах
-        🧪 Тестирование сервера
+        🐙 GitHub операции
+        🌿 Локальный Git
 
         Просто напишите сообщение, и я автоматически использую нужные инструменты!
     """.trimIndent()
@@ -888,8 +775,8 @@ companion object {
 
 **Solutions**:
 1. Check if MCP server is enabled in settings dialog
-2. Verify keywords in `userMentionsJokes()` or `userMentionsSemanticSearch()`
-3. Check logs for "🎭 Use Agentic API with..." message
+2. Verify keywords in `userMentionsSemanticSearch()`, `userMentionsGitHub()`, or `userMentionsLocalGit()`
+3. Check logs for tool detection messages
 4. Ensure MCP server is running on http://10.0.2.2:8080
 
 ### Compression Not Working
@@ -926,9 +813,6 @@ companion object {
 ## Related Documentation
 
 - [SEMANTIC_SEARCH.md](../server/SEMANTIC_SEARCH.md) - Semantic search implementation details
-- [GET_JOKE.md](../server/tools/GET_JOKE.md) - Joke fetching tool
-- [SAVE_JOKE.md](../server/tools/SAVE_JOKE.md) - Joke saving tool
-- [RUN_TESTS.md](../server/tools/RUN_TESTS.md) - Testing tool
 - [OLLAMA_SCREEN.md](OLLAMA_SCREEN.md) - Document indexing screen
 - [SERVER_README.md](../server/SERVER_README.md) - MCP server overview
 

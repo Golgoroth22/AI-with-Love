@@ -5,8 +5,12 @@ import com.example.aiwithlove.data.AgenticResponse
 import com.example.aiwithlove.data.AgenticUsage
 import com.example.aiwithlove.data.OutputItem
 import com.example.aiwithlove.data.PerplexityApiService
+import com.example.aiwithlove.data.model.Message
 import com.example.aiwithlove.database.ChatRepository
+import com.example.aiwithlove.database.EmbeddingsRepository
 import com.example.aiwithlove.mcp.McpClient
+import com.example.aiwithlove.mcp.McpClientManager
+import com.example.aiwithlove.ollama.OllamaClient
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -37,6 +41,9 @@ class ChatViewModelProductionTest {
     private lateinit var perplexityService: PerplexityApiService
     private lateinit var chatRepository: ChatRepository
     private lateinit var mcpClient: McpClient
+    private lateinit var mcpClientManager: McpClientManager
+    private lateinit var ollamaClient: OllamaClient
+    private lateinit var embeddingsRepository: EmbeddingsRepository
     private val testDispatcher = UnconfinedTestDispatcher()
 
     @Before
@@ -57,6 +64,9 @@ class ChatViewModelProductionTest {
         perplexityService = mockk(relaxed = true)
         chatRepository = mockk(relaxed = true)
         mcpClient = mockk(relaxed = true)
+        mcpClientManager = mockk(relaxed = true)
+        ollamaClient = mockk(relaxed = true)
+        embeddingsRepository = mockk(relaxed = true)
 
         // Setup default mock behaviors
         coEvery { chatRepository.getAllMessages() } returns emptyList()
@@ -73,7 +83,14 @@ class ChatViewModelProductionTest {
     }
 
     private fun createViewModel() {
-        viewModel = ChatViewModel(perplexityService, chatRepository, mcpClient)
+        viewModel =
+            ChatViewModel(
+                perplexityService,
+                chatRepository,
+                mcpClientManager,
+                ollamaClient,
+                embeddingsRepository
+            )
     }
 
     // ========== Initial State Tests ==========
@@ -115,12 +132,12 @@ class ChatViewModelProductionTest {
         }
 
     @Test
-    fun `joke server exists in MCP servers`() =
+    fun `rag server exists in MCP servers`() =
         runTest {
             createViewModel()
 
-            val jokeServer = viewModel.mcpServers.value.find { it.id == "jokes" }
-            assertNotNull(jokeServer)
+            val ragServer = viewModel.mcpServers.value.find { it.id == "rag" }
+            assertNotNull(ragServer)
         }
 
     // ========== MCP Dialog Tests ==========
@@ -153,11 +170,11 @@ class ChatViewModelProductionTest {
         runTest {
             createViewModel()
 
-            val initialState = viewModel.mcpServers.value.find { it.id == "jokes" }?.isEnabled ?: false
+            val initialState = viewModel.mcpServers.value.find { it.id == "rag" }?.isEnabled ?: false
 
-            viewModel.toggleMcpServer("jokes")
+            viewModel.toggleMcpServer("rag")
 
-            val newState = viewModel.mcpServers.value.find { it.id == "jokes" }?.isEnabled ?: false
+            val newState = viewModel.mcpServers.value.find { it.id == "rag" }?.isEnabled ?: false
             assertEquals(!initialState, newState)
         }
 
@@ -166,12 +183,12 @@ class ChatViewModelProductionTest {
         runTest {
             createViewModel()
 
-            val initialState = viewModel.mcpServers.value.find { it.id == "jokes" }?.isEnabled ?: false
+            val initialState = viewModel.mcpServers.value.find { it.id == "rag" }?.isEnabled ?: false
 
-            viewModel.toggleMcpServer("jokes")
-            viewModel.toggleMcpServer("jokes")
+            viewModel.toggleMcpServer("rag")
+            viewModel.toggleMcpServer("rag")
 
-            val finalState = viewModel.mcpServers.value.find { it.id == "jokes" }?.isEnabled ?: false
+            val finalState = viewModel.mcpServers.value.find { it.id == "rag" }?.isEnabled ?: false
             assertEquals(initialState, finalState)
         }
 
@@ -181,12 +198,12 @@ class ChatViewModelProductionTest {
             createViewModel()
 
             val initialServers = viewModel.mcpServers.value
-            val otherServers = initialServers.filter { it.id != "jokes" }
+            val otherServers = initialServers.filter { it.id != "rag" }
 
-            viewModel.toggleMcpServer("jokes")
+            viewModel.toggleMcpServer("rag")
 
             val newServers = viewModel.mcpServers.value
-            val newOtherServers = newServers.filter { it.id != "jokes" }
+            val newOtherServers = newServers.filter { it.id != "rag" }
 
             // Check that other servers remain unchanged
             assertEquals(otherServers.size, newOtherServers.size)
@@ -344,8 +361,8 @@ class ChatViewModelProductionTest {
         runTest {
             val savedMessages =
                 listOf(
-                    ChatViewModel.Message(text = "Old message", isFromUser = true, timestamp = 1000),
-                    ChatViewModel.Message(text = "Old response", isFromUser = false, timestamp = 2000)
+                    Message(text = "Old message", isFromUser = true, timestamp = 1000),
+                    Message(text = "Old response", isFromUser = false, timestamp = 2000)
                 )
             coEvery { chatRepository.getAllMessages() } returns savedMessages
 
@@ -380,14 +397,14 @@ class ChatViewModelProductionTest {
     // ========== Tool Usage Tests ==========
 
     @Test
-    fun `joke keywords with enabled server passes tools to API`() =
+    fun `github keywords with enabled server passes tools to API`() =
         runTest {
             createViewModel()
 
-            // Enable joke server if not already
-            val jokeServer = viewModel.mcpServers.value.find { it.id == "jokes" }
-            if (jokeServer?.isEnabled == false) {
-                viewModel.toggleMcpServer("jokes")
+            // Enable github server if not already
+            val githubServer = viewModel.mcpServers.value.find { it.id == "github" }
+            if (githubServer?.isEnabled == false) {
+                viewModel.toggleMcpServer("github")
             }
 
             coEvery {
@@ -395,12 +412,12 @@ class ChatViewModelProductionTest {
             } returns
                 Result.success(
                     AgenticResponse(
-                        outputText = "Here's a joke",
+                        outputText = "Here's the repository info",
                         usage = AgenticUsage(10, 20)
                     )
                 )
 
-            viewModel.sendMessage("Расскажи шутку")
+            viewModel.sendMessage("GitWithLove покажи информацию о репозитории")
 
             coVerify {
                 perplexityService.sendAgenticRequest(
@@ -444,10 +461,10 @@ class ChatViewModelProductionTest {
         runTest {
             createViewModel()
 
-            // Enable joke server
-            val jokeServer = viewModel.mcpServers.value.find { it.id == "jokes" }
-            if (jokeServer?.isEnabled == false) {
-                viewModel.toggleMcpServer("jokes")
+            // Enable github server
+            val githubServer = viewModel.mcpServers.value.find { it.id == "github" }
+            if (githubServer?.isEnabled == false) {
+                viewModel.toggleMcpServer("github")
             }
 
             // First response: tool call
@@ -457,8 +474,8 @@ class ChatViewModelProductionTest {
                         listOf(
                             OutputItem(
                                 type = "function_call",
-                                name = "get_joke",
-                                arguments = """{"category": "Any"}"""
+                                name = "get_repo",
+                                arguments = """{"owner": "facebook", "repo": "react"}"""
                             )
                         )
                 )
@@ -466,7 +483,7 @@ class ChatViewModelProductionTest {
             // Second response: final text
             val finalResponse =
                 AgenticResponse(
-                    outputText = "Here's the joke",
+                    outputText = "Here's the repository info",
                     usage = AgenticUsage(10, 20)
                 )
 
@@ -482,12 +499,12 @@ class ChatViewModelProductionTest {
             }
 
             coEvery {
-                mcpClient.callTool("get_joke", any())
-            } returns """{"content": [{"text": "A funny joke"}]}"""
+                mcpClientManager.callTool("get_repo", any(), any())
+            } returns """{"content": [{"text": "Repository information"}]}"""
 
-            viewModel.sendMessage("Расскажи шутку")
+            viewModel.sendMessage("GitWithLove покажи информацию о репозитории")
 
-            coVerify { mcpClient.callTool("get_joke", any()) }
+            coVerify { mcpClientManager.callTool("get_repo", any(), any()) }
         }
 
     // ========== Token Usage Tests ==========
