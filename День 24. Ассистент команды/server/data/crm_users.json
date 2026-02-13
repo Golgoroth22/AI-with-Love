@@ -1,0 +1,28 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "name": "Иван Петров",
+      "email": "ivan.petrov@example.com",
+      "account_status": "active",
+      "registration_date": "2025-01-15",
+      "subscription_tier": "premium"
+    },
+    {
+      "id": 2,
+      "name": "Мария Сидорова",
+      "email": "maria.sidorova@example.com",
+      "account_status": "active",
+      "registration_date": "2025-02-01",
+      "subscription_tier": "free"
+    },
+    {
+      "id": 3,
+      "name": "Алексей Иванов",
+      "email": "alexey.ivanov@example.com",
+      "account_status": "suspended",
+      "registration_date": "2024-12-10",
+      "subscription_tier": "basic"
+    }
+  ]
+}

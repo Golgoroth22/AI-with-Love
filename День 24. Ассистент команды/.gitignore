@@ -1,0 +1,9 @@
+*.bat
+/gradlew
+.gradle/
+app/build/
+.idea/
+.kotlin/
+
+# Security: Never commit credentials
+app/src/main/java/com/example/aiwithlove/util/SecureData.kt
