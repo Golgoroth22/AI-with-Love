@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **AI with Love** is an educational Android application demonstrating agentic AI patterns with RAG (Retrieval-Augmented Generation) capabilities. The app integrates with a custom MCP (Model Context Protocol) server for tool execution and uses Perplexity's Agentic API for intelligent responses.
 
-**Current Day**: День 22 (Day 22) - Автоматизация ревью кода (Code Review Automation)
+**Current Day**: День 23 (Day 23) - Ассистент для поддержки пользователей (Support Assistant)
 
 ## ⚡ Day 21 Updates: Local Processing Architecture
 
@@ -131,6 +131,73 @@ The AI automatically parses PR references from user messages:
 - Comment posting directly to PR via GitHub API
 - Integration with GitHub Checks API for status reporting
 
+## 🎫 Support Assistant (Day 23)
+
+**New Feature**: Dedicated support screen with automatic CRM ticket creation and FAQ-powered answers.
+
+**Architecture:** Separate `SupportScreen` and `SupportViewModel` (independent from main chat) that integrates:
+- **CRM Tools** (via MCP server) - Ticket creation, retrieval, and updates
+- **RAG/FAQ Search** - Semantic search for solutions in indexed documentation
+- **Automatic Ticket Management** - One ticket per conversation session
+
+**Key Differences from Main Chat:**
+
+| Aspect | Main Chat | Support Screen |
+|--------|-----------|----------------|
+| **Purpose** | General AI queries | Support tickets only |
+| **MCP Servers** | User selects via dialog | Always: Support + RAG |
+| **Session** | Continuous dialog | One ticket per session |
+| **First Message** | Just sends message | Creates ticket first, then sends |
+| **Clear Chat** | Deletes all messages | Creates new ticket on next message |
+
+**Available CRM Tools** (4 tools in `http_mcp_server.py`):
+- `create_ticket` - Auto-creates ticket with title, category, priority (user_id=1 mock)
+- `get_ticket` - Fetches ticket details including full history
+- `update_ticket` - Changes status (open/in_progress/resolved/closed) or adds notes
+- `list_user_tickets` - Lists all user tickets with status filtering
+
+**Workflow:**
+1. User opens Support screen, sees welcome message
+2. User sends first message → `create_ticket` called automatically
+3. ViewModel extracts title (first 50 chars) and detects category (authentication/features/troubleshooting)
+4. AI uses `semantic_search` to find FAQ solutions based on category
+5. AI responds with FAQ citations and ticket context
+6. Follow-up messages use same ticket ID (displayed in TopAppBar)
+7. "Начать новый диалог" button clears session → next message creates new ticket
+
+**CRM Data Storage:**
+- `server/data/crm_tickets.json` - Ticket storage with auto-increment IDs
+- `server/data/crm_users.json` - Mock user database (3 users)
+- Ticket structure: id, user_id, title, description, status, priority, category, history[], timestamps
+
+**FAQ Integration:**
+- `FAQ.md` must be indexed via Ollama screen (52 chunks)
+- Semantic search uses threshold 0.6 by default
+- FAQ structured with direct answers at top for better ranking
+- Example: "Какую LLM ты используешь?" → chunk 0 contains "Perplexity Agentic API"
+
+**Category Detection** (keyword-based in `SupportViewModel.kt`):
+- `authentication`: вход, пароль, авторизация, 2FA, аккаунт
+- `troubleshooting`: ошибка, не работает, сломал, crash, медленно
+- `features`: как, использовать, функция, настроить
+- `other`: default for unmatched
+
+**Critical Implementation Details:**
+- Ticket ID parsing handles nested MCP JSON-RPC response format with 3-tier fallback
+- Type conversion required: SQLite returns similarity as string, must cast to float
+- SupportViewModel uses separate agentic loop (max 5 iterations, model: openai/gpt-5-mini)
+- Instructions always include current ticket ID context
+- No support keywords in main ChatViewModel (removed in Day 23)
+
+**Navigation:**
+- LaunchScreen → "Ассистент поддержки пользователей" button → SupportScreen
+- Back button returns to LaunchScreen (session not preserved)
+
+**Known Issues Fixed:**
+- Semantic search type comparison (`'<' not supported`) → fixed with explicit float() conversion
+- Ticket ID parsing null → fixed with MCP content array parsing
+- FAQ giving wrong answers → restructured with direct answers at top
+
 ## Build & Run Commands
 
 ### Android App
@@ -193,6 +260,7 @@ When testing with the Android emulator:
 │  Presentation Layer (Compose UI)            │
 │  - ChatScreen: Agentic chat interface       │
 │  - OllamaScreen: Document indexing UI       │
+│  - SupportScreen: Support assistant 🆕      │
 │  - LaunchScreen: Navigation hub             │
 └────────────────┬────────────────────────────┘
                  │
@@ -200,6 +268,7 @@ When testing with the Android emulator:
 │  Domain Layer (ViewModels + Repository)     │
 │  - ChatViewModel: Agentic orchestration     │
 │  - OllamaViewModel: Document processing     │
+│  - SupportViewModel: Ticket management 🆕   │
 │  - ChatRepository: Database operations      │
 └────────────────┬────────────────────────────┘
                  │
@@ -210,19 +279,23 @@ When testing with the Android emulator:
 │  - McpClient: MCP server communication      │
 │  - AppDatabase: Room database (SQLite)      │
 │  - EmbeddingsDatabase: Local embeddings     │
+│  - CRM JSON files: Tickets & Users 🆕       │
 └─────────────────────────────────────────────┘
 ```
 
-### Multi-Server MCP Architecture (New in Day 21)
+### Multi-Server MCP Architecture (Updated Day 23)
 
 ```
-ChatViewModel
+ChatViewModel / SupportViewModel
     ├─→ McpClientManager (routes tool calls)
     │       ├─→ McpClient("rag") → RAG Server (semantic_search)
-    │       └─→ McpClient("github") → GitHub MCP Server (get_repo, search_code, etc.)
+    │       ├─→ McpClient("github") → GitHub MCP Server (get_repo, search_code, etc.)
+    │       └─→ McpClient("support") → Support Server (get_ticket, create_ticket, update_ticket) 🆕
     │
     ├─→ OllamaClient → Local Ollama (embeddings)
     └─→ EmbeddingsRepository → Local SQLite (document storage)
+
+Note: SupportViewModel always uses "support" + "rag" servers (no user selection needed)
 ```
 
 ### Dependency Injection (Koin)
@@ -238,10 +311,28 @@ When adding new dependencies, update `appModule` in `AppModule.kt`.
 
 The MCP server (`server/http_mcp_server.py`) implements JSON-RPC 2.0 protocol with the following tools:
 
-**Available Tools:**
+**Available Tools (22 total):**
+
+**RAG/Embeddings (6 tools):**
 1. `semantic_search` - RAG-based semantic search with threshold filtering
 2. `process_text_chunks` - Text chunking and embedding generation **with parallel processing**
 3. `create_embedding` - Generate embeddings using Ollama
+4. `save_document` - Save document with embeddings and citations
+5. `search_similar` - Cosine similarity search in local DB
+6. `process_pdf` - Extract text from PDF, chunk, and index
+
+**GitHub MCP (8 tools):**
+7. `get_repo`, `search_code`, `create_issue`, `list_issues`, `list_commits`, `get_repo_content`
+8. `get_pull_request`, `get_pr_files` - PR review tools (Day 22)
+
+**Local Git (4 tools):**
+9. `git_status`, `git_branch`, `git_diff`, `git_pr_status`
+
+**Support/CRM (4 tools - Day 23):** 🆕
+10. `create_ticket` - Auto-creates ticket with title, category, priority
+11. `get_ticket` - Fetches ticket details including full history
+12. `update_ticket` - Changes status or adds notes to ticket
+13. `list_user_tickets` - Lists all user tickets with filtering
 
 **Key Configuration:**
 - `EMBEDDINGS_DB_PATH` - SQLite database for document storage
@@ -366,8 +457,11 @@ Three main entities in `AppDatabase`:
 |-----------|---------------|
 | `app/src/main/java/com/example/aiwithlove/viewmodel/ChatViewModel.kt` | Agentic orchestration, tool execution, dialog management, PR review keyword detection and instructions |
 | `app/src/main/java/com/example/aiwithlove/viewmodel/OllamaViewModel.kt` | Document indexing, PDF processing |
+| `app/src/main/java/com/example/aiwithlove/viewmodel/SupportViewModel.kt` | **NEW (Day 23)**: Support ticket management, CRM integration, FAQ-powered responses |
 | `app/src/main/java/com/example/aiwithlove/ui/screen/ChatScreen.kt` | Chat UI, message rendering, MCP tool info display |
 | `app/src/main/java/com/example/aiwithlove/ui/screen/OllamaScreen.kt` | Document upload UI, indexing interface |
+| `app/src/main/java/com/example/aiwithlove/ui/screen/SupportScreen.kt` | **NEW (Day 23)**: Support assistant UI, ticket display, FAQ answers |
+| `app/src/main/java/com/example/aiwithlove/ui/screen/LaunchScreen.kt` | **UPDATED (Day 23)**: Added Support button, made scrollable |
 | `app/src/main/java/com/example/aiwithlove/mcp/McpClient.kt` | MCP server communication via JSON-RPC with auth support |
 | `app/src/main/java/com/example/aiwithlove/mcp/McpClientManager.kt` | **NEW (Day 21)**: Multi-server routing for RAG + GitHub |
 | `app/src/main/java/com/example/aiwithlove/mcp/McpServerConfig.kt` | **UPDATED (Day 21)**: Added GitHub server configuration |
@@ -380,9 +474,11 @@ Three main entities in `AppDatabase`:
 
 | File Path | Responsibility |
 |-----------|---------------|
-| `server/http_mcp_server.py` | Main server implementation, tool handlers, JSON-RPC protocol |
+| `server/http_mcp_server.py` | Main server implementation, tool handlers, JSON-RPC protocol (RAG + GitHub + CRM tools) |
 | `server/test_http_mcp_server.py` | Test suite (26 tests) |
 | `server/data/embeddings.db` | SQLite database for document embeddings |
+| `server/data/crm_tickets.json` | **NEW (Day 23)**: CRM ticket storage with auto-increment IDs |
+| `server/data/crm_users.json` | **NEW (Day 23)**: Mock user database (3 users) |
 | `server/deploy_quick.sh` | Remote server deployment script |
 
 ## Important Conventions
@@ -617,6 +713,56 @@ curl http://localhost:11434/api/embeddings -d '{"model":"nomic-embed-text","prom
 - Kotlin version mismatch: Ensure `kotlin("plugin.serialization")` version matches project Kotlin version
 - KSP errors: Clean build (`./gradlew clean`) and rebuild
 - Room schema changes: Delete app data or increment database version
+
+### Support Assistant Issues (Day 23)
+
+**Problem:** Ticket ID returns null after creation
+
+**Solution:**
+- MCP wraps responses in `{"content":[{"type":"text","text":"..."}]}` structure
+- Use 3-tier fallback parsing in `parseTicketIdFromResponse()`:
+  1. Parse from MCP content array (primary)
+  2. Fallback to top-level ticket_id
+  3. Fallback to nested result object
+- Check server logs for actual response structure
+
+**Problem:** Semantic search type comparison error (`'<' not supported`)
+
+**Solution:**
+- SQLite returns similarity as string, must cast to float
+- Add explicit conversion: `similarity = float(doc.get('similarity', 0))`
+- Check `http_mcp_server.py` line ~1154
+
+**Problem:** AI gives wrong answers about LLM/API being used
+
+**Solution:**
+- FAQ.md must have **direct answers at the top** of each section
+- Don't bury answers in technical details - put them first
+- Re-index FAQ after editing: delete old chunks, process_text_chunks again
+- Verify with semantic search: query "какую LLM ты используешь" should return chunk 0 with high score (>0.75)
+
+**Problem:** FAQ not indexed or returning 0 results
+
+**Solution:**
+- Process FAQ.md via Ollama screen OR manually via curl:
+  ```bash
+  curl -X POST http://localhost:8080 -H "Content-Type: application/json" -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "process_text_chunks",
+      "arguments": {
+        "text": "...",
+        "source_file": "FAQ.md",
+        "chunk_size": 1000,
+        "overlap": 200
+      }
+    },
+    "id": 1
+  }'
+  ```
+- Verify chunks saved: `sqlite3 server/data/embeddings.db "SELECT COUNT(*) FROM documents WHERE source_file='FAQ.md';"`
+- Should see 52 chunks for current FAQ.md
 
 ## Documentation Index
 

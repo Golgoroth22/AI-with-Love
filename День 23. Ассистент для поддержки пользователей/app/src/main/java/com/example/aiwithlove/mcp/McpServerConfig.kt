@@ -140,6 +140,40 @@ object McpServers {
                         )
                     ),
                 isEnabled = false
+            ),
+            McpServerConfig(
+                id = "support",
+                name = "Support Assistant",
+                url = ServerConfig.MCP_SERVER_URL,
+                description = "Управление тикетами поддержки: просмотр, создание, обновление статусов, поиск решений в FAQ",
+                tools =
+                    listOf(
+                        McpToolInfo(
+                            name = "get_ticket",
+                            emoji = "🎫",
+                            description = "Получить информацию о тикете по ID",
+                            triggerWords = listOf("Support", "тикет", "ticket", "обращение")
+                        ),
+                        McpToolInfo(
+                            name = "list_user_tickets",
+                            emoji = "📋",
+                            description = "Список тикетов пользователя",
+                            triggerWords = listOf("Support", "тикеты пользователя", "обращения клиента")
+                        ),
+                        McpToolInfo(
+                            name = "create_ticket",
+                            emoji = "➕",
+                            description = "Создать новый тикет",
+                            triggerWords = listOf("Support", "создать тикет", "новое обращение")
+                        ),
+                        McpToolInfo(
+                            name = "update_ticket",
+                            emoji = "✏️",
+                            description = "Обновить статус тикета или добавить комментарий",
+                            triggerWords = listOf("Support", "обновить тикет", "изменить статус")
+                        )
+                    ),
+                isEnabled = false
             )
         )
 }

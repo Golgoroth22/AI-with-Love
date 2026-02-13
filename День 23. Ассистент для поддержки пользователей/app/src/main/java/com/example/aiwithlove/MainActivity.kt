@@ -11,6 +11,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.aiwithlove.ui.screen.ChatScreen
 import com.example.aiwithlove.ui.screen.LaunchScreen
 import com.example.aiwithlove.ui.screen.OllamaScreen
+import com.example.aiwithlove.ui.screen.SupportScreen
 import com.example.aiwithlove.ui.theme.AIWithLoveTheme
 
 class MainActivity : ComponentActivity() {
@@ -40,6 +41,9 @@ fun AppNavigation() {
                 },
                 onNavigateToDocIndexing = {
                     navController.navigate("ollama")
+                },
+                onNavigateToSupport = {
+                    navController.navigate("support")
                 }
             )
         }
@@ -50,6 +54,14 @@ fun AppNavigation() {
 
         composable("ollama") {
             OllamaScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable("support") {
+            SupportScreen(
                 onNavigateBack = {
                     navController.popBackStack()
                 }

@@ -15,6 +15,7 @@ import com.example.aiwithlove.util.SecureData
 import com.example.aiwithlove.util.ServerConfig
 import com.example.aiwithlove.viewmodel.ChatViewModel
 import com.example.aiwithlove.viewmodel.OllamaViewModel
+import com.example.aiwithlove.viewmodel.SupportViewModel
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
@@ -63,4 +64,5 @@ val appModule =
 
         viewModel { ChatViewModel(get(), get(), get(), get(), get()) }
         viewModel { OllamaViewModel(get(), get()) }
+        viewModel { SupportViewModel(get(), get(), get()) }
     }

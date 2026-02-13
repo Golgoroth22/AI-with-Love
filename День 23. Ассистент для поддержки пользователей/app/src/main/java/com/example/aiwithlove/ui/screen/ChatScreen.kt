@@ -57,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontStyle
@@ -367,6 +368,54 @@ fun MessageBubble(message: Message) {
                                 }
                             }
 
+                            "get_ticket", "list_user_tickets" -> {
+                                // Parse and show ticket information
+                                parseTicketFromResponse(toolInfo.responseBody)?.let { ticket ->
+                                    SupportTicketCard(ticket = ticket)
+                                } ?: run {
+                                    SimpleToolBadge(toolName = toolInfo.toolName)
+                                }
+                            }
+
+                            "create_ticket", "update_ticket" -> {
+                                // Show success message for ticket operations
+                                androidx.compose.material3.Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors =
+                                        androidx.compose.material3.CardDefaults.cardColors(
+                                            containerColor =
+                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                        )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("✅", fontSize = 14.sp)
+                                        Column {
+                                            Text(
+                                                text =
+                                                    when (toolInfo.toolName) {
+                                                        "create_ticket" -> "Тикет создан"
+                                                        "update_ticket" -> "Тикет обновлён"
+                                                        else -> "Операция выполнена"
+                                                    },
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 12.sp
+                                            )
+                                            parseTicketIdFromResponse(toolInfo.responseBody)?.let { ticketId ->
+                                                Text(
+                                                    text = "Тикет #$ticketId",
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             else -> {
                                 // Other tools: show simple badge
                                 SimpleToolBadge(toolName = toolInfo.toolName)
@@ -574,6 +623,258 @@ private fun SemanticSearchResultCard(
         }
     }
 }
+
+/**
+ * Support Ticket Card - displays ticket information
+ */
+@Composable
+private fun SupportTicketCard(
+    ticket: SupportTicket,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.material3.Card(
+        modifier = modifier.fillMaxWidth(),
+        colors =
+            androidx.compose.material3.CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            ),
+        border = BorderStroke(1.dp, getStatusColor(ticket.status).copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Header with ticket ID and status
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("🎫", fontSize = 16.sp)
+                    Text(
+                        text = "Тикет #${ticket.id}",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+
+                TicketStatusBadge(status = ticket.status)
+            }
+
+            // Title
+            Text(
+                text = ticket.title,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            // Priority badge
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Приоритет:",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                PriorityBadge(priority = ticket.priority)
+            }
+
+            // User info
+            ticket.user?.let { user ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("👤", fontSize = 11.sp)
+                    Text(
+                        text = "${user.name} (${user.email})",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Category
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(getCategoryEmoji(ticket.category), fontSize = 11.sp)
+                Text(
+                    text = getCategoryName(ticket.category),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // Description
+            if (ticket.description.isNotBlank()) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                )
+
+                Text(
+                    text = ticket.description,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
+
+            // Timestamps
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Создан: ${formatTimestamp(ticket.createdAt)}",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                )
+                if (ticket.updatedAt != ticket.createdAt) {
+                    Text(
+                        text = "Обновлён: ${formatTimestamp(ticket.updatedAt)}",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TicketStatusBadge(status: String) {
+    val (emoji, text, color) =
+        when (status) {
+            "open" -> Triple("🔵", "Открыт", Color(0xFF2196F3))
+            "in_progress" -> Triple("🟡", "В работе", Color(0xFFFFC107))
+            "resolved" -> Triple("🟢", "Решён", Color(0xFF4CAF50))
+            "closed" -> Triple("⚫", "Закрыт", Color(0xFF9E9E9E))
+            else -> Triple("❓", "Неизвестно", Color.Gray)
+        }
+
+    Box(
+        modifier =
+            Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(color.copy(alpha = 0.2f))
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(emoji, fontSize = 10.sp)
+            Text(
+                text = text,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = color
+            )
+        }
+    }
+}
+
+@Composable
+private fun PriorityBadge(priority: String) {
+    val (emoji, text, color) =
+        when (priority) {
+            "low" -> Triple("⬇️", "Низкий", Color(0xFF4CAF50))
+            "medium" -> Triple("➡️", "Средний", Color(0xFF2196F3))
+            "high" -> Triple("⬆️", "Высокий", Color(0xFFFF9800))
+            "critical" -> Triple("🔴", "Критический", Color(0xFFF44336))
+            else -> Triple("❓", "Неизвестно", Color.Gray)
+        }
+
+    Box(
+        modifier =
+            Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(color.copy(alpha = 0.15f))
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(emoji, fontSize = 9.sp)
+            Text(
+                text = text,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                color = color
+            )
+        }
+    }
+}
+
+private fun getStatusColor(status: String): Color =
+    when (status) {
+        "open" -> Color(0xFF2196F3)
+        "in_progress" -> Color(0xFFFFC107)
+        "resolved" -> Color(0xFF4CAF50)
+        "closed" -> Color(0xFF9E9E9E)
+        else -> Color.Gray
+    }
+
+private fun getCategoryEmoji(category: String): String =
+    when (category) {
+        "authentication" -> "🔐"
+        "features" -> "⚙️"
+        "troubleshooting" -> "🔧"
+        else -> "📝"
+    }
+
+private fun getCategoryName(category: String): String =
+    when (category) {
+        "authentication" -> "Аутентификация"
+        "features" -> "Функции"
+        "troubleshooting" -> "Устранение неполадок"
+        else -> "Общее"
+    }
+
+private fun formatTimestamp(timestamp: String): String =
+    try {
+        val instant = java.time.Instant.parse(timestamp)
+        val formatter =
+            java.time.format.DateTimeFormatter
+                .ofPattern("dd.MM.yyyy HH:mm")
+                .withZone(java.time.ZoneId.systemDefault())
+        formatter.format(instant)
+    } catch (e: Exception) {
+        timestamp.take(16).replace("T", " ")
+    }
+
+// Data classes for ticket display
+data class SupportTicket(
+    val id: Int,
+    val title: String,
+    val description: String,
+    val status: String,
+    val priority: String,
+    val category: String,
+    val createdAt: String,
+    val updatedAt: String,
+    val user: TicketUser? = null
+)
+
+data class TicketUser(
+    val id: Int,
+    val name: String,
+    val email: String
+)
 
 /**
  * List of document items
@@ -1033,6 +1334,55 @@ private fun ThresholdLabel(
             fontSize = 10.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+/**
+ * Parse ticket information from MCP tool response
+ */
+private fun parseTicketFromResponse(response: String): SupportTicket? {
+    return try {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        val jsonElement = json.parseToJsonElement(response)
+        val jsonObject = jsonElement as? kotlinx.serialization.json.JsonObject ?: return null
+
+        val ticketJson = jsonObject["ticket"] as? kotlinx.serialization.json.JsonObject ?: return null
+        val userJson = jsonObject["user"] as? kotlinx.serialization.json.JsonObject
+
+        SupportTicket(
+            id = (ticketJson["id"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: return null,
+            title = (ticketJson["title"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "",
+            description = (ticketJson["description"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "",
+            status = (ticketJson["status"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "unknown",
+            priority = (ticketJson["priority"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "medium",
+            category = (ticketJson["category"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "other",
+            createdAt = (ticketJson["created_at"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "",
+            updatedAt = (ticketJson["updated_at"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "",
+            user =
+                userJson?.let {
+                    TicketUser(
+                        id = (it["id"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 0,
+                        name = (it["name"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "",
+                        email = (it["email"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
+                    )
+                }
+        )
+    } catch (e: Exception) {
+        null
+    }
+}
+
+/**
+ * Parse ticket ID from create/update response
+ */
+private fun parseTicketIdFromResponse(response: String): Int? {
+    return try {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        val jsonElement = json.parseToJsonElement(response)
+        val jsonObject = jsonElement as? kotlinx.serialization.json.JsonObject ?: return null
+        (jsonObject["ticket_id"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()
+    } catch (e: Exception) {
+        null
     }
 }
 

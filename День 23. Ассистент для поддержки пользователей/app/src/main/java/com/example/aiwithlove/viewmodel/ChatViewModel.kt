@@ -135,6 +135,7 @@ class ChatViewModel(
         return false
     }
 
+
     private fun buildGetRepoTool(): AgenticTool {
         val parameters =
             buildJsonObject {
@@ -521,6 +522,7 @@ class ChatViewModel(
         )
     }
 
+
     data class ToolExecutionResult(
         val result: String,
         val mcpToolInfo: McpToolInfo?
@@ -615,6 +617,7 @@ class ChatViewModel(
                     )
                 }
             }
+
 
             else -> {
                 logE("🔧 Unknown tool: $toolName", null)
@@ -774,6 +777,7 @@ Example format:
                 """.trimIndent()
             )
         }
+
 
         return instructions.joinToString("\n\n")
     }

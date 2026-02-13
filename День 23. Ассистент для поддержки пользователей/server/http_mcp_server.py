@@ -35,6 +35,11 @@ GITHUB_DEFAULT_OWNER = "Golgoroth22"  # Default repository owner
 # Local Git configuration
 GIT_DEFAULT_REPO_PATH = "/Users/falin/AndroidStudioProjects/AI-with-Love"
 
+# CRM data storage
+CRM_USERS = []
+CRM_TICKETS = []
+CRM_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+
 def set_github_token(token):
     """Set GitHub Personal Access Token"""
     global GITHUB_TOKEN
@@ -97,6 +102,52 @@ def init_database():
     conn.commit()
     conn.close()
     print(f"📦 Embeddings database initialized: {EMBEDDINGS_DB_PATH}")
+
+def load_crm_data():
+    """Load CRM data from JSON files"""
+    global CRM_USERS, CRM_TICKETS
+
+    users_file = os.path.join(CRM_DATA_DIR, 'crm_users.json')
+    tickets_file = os.path.join(CRM_DATA_DIR, 'crm_tickets.json')
+
+    try:
+        if os.path.exists(users_file):
+            with open(users_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                CRM_USERS = data.get('users', [])
+            print(f"✅ Loaded {len(CRM_USERS)} users from CRM")
+        else:
+            print(f"⚠️  CRM users file not found: {users_file}")
+            CRM_USERS = []
+    except Exception as e:
+        print(f"❌ Failed to load CRM users: {str(e)}")
+        CRM_USERS = []
+
+    try:
+        if os.path.exists(tickets_file):
+            with open(tickets_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                CRM_TICKETS = data.get('tickets', [])
+            print(f"✅ Loaded {len(CRM_TICKETS)} tickets from CRM")
+        else:
+            print(f"⚠️  CRM tickets file not found: {tickets_file}")
+            CRM_TICKETS = []
+    except Exception as e:
+        print(f"❌ Failed to load CRM tickets: {str(e)}")
+        CRM_TICKETS = []
+
+def save_crm_data():
+    """Save CRM data back to JSON files"""
+    users_file = os.path.join(CRM_DATA_DIR, 'crm_users.json')
+    tickets_file = os.path.join(CRM_DATA_DIR, 'crm_tickets.json')
+
+    try:
+        with open(users_file, 'w', encoding='utf-8') as f:
+            json.dump({'users': CRM_USERS}, f, indent=2, ensure_ascii=False)
+        with open(tickets_file, 'w', encoding='utf-8') as f:
+            json.dump({'tickets': CRM_TICKETS}, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"❌ Failed to save CRM data: {str(e)}")
 
 # Database helper utilities
 def _serialize_embedding(embedding):
@@ -709,6 +760,97 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                     },
                     'required': []
                 }
+            },
+            {
+                'name': 'get_ticket',
+                'description': 'Get ticket details by ticket ID including status, priority, description, and full history',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'ticket_id': {
+                            'type': 'integer',
+                            'description': 'Ticket ID to retrieve'
+                        }
+                    },
+                    'required': ['ticket_id']
+                }
+            },
+            {
+                'name': 'list_user_tickets',
+                'description': 'List all tickets for a specific user with optional status filtering (open, in_progress, resolved, closed, or all)',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'user_id': {
+                            'type': 'integer',
+                            'description': 'User ID to get tickets for'
+                        },
+                        'status': {
+                            'type': 'string',
+                            'description': 'Filter by status: open, in_progress, resolved, closed, or all (default: all)',
+                            'default': 'all'
+                        }
+                    },
+                    'required': ['user_id']
+                }
+            },
+            {
+                'name': 'create_ticket',
+                'description': 'Create a new support ticket for a user with title, description, priority, and category',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'user_id': {
+                            'type': 'integer',
+                            'description': 'User ID creating the ticket'
+                        },
+                        'title': {
+                            'type': 'string',
+                            'description': 'Short ticket title summarizing the issue'
+                        },
+                        'description': {
+                            'type': 'string',
+                            'description': 'Detailed description of the problem'
+                        },
+                        'priority': {
+                            'type': 'string',
+                            'description': 'Priority level: low, medium, high, or critical (default: medium)',
+                            'default': 'medium'
+                        },
+                        'category': {
+                            'type': 'string',
+                            'description': 'Category: authentication, features, troubleshooting, or other (default: other)',
+                            'default': 'other'
+                        }
+                    },
+                    'required': ['user_id', 'title', 'description']
+                }
+            },
+            {
+                'name': 'update_ticket',
+                'description': 'Update ticket status, add notes to history, or reassign to support agent',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'ticket_id': {
+                            'type': 'integer',
+                            'description': 'Ticket ID to update'
+                        },
+                        'status': {
+                            'type': 'string',
+                            'description': 'New status: open, in_progress, resolved, or closed (optional)'
+                        },
+                        'note': {
+                            'type': 'string',
+                            'description': 'Note to add to ticket history (optional)'
+                        },
+                        'assigned_to': {
+                            'type': 'string',
+                            'description': 'Assign ticket to support agent (optional)'
+                        }
+                    },
+                    'required': ['ticket_id']
+                }
             }
         ]
 
@@ -769,6 +911,14 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 result = self.tool_git_diff(arguments)
             elif tool_name == 'git_pr_status':
                 result = self.tool_git_pr_status(arguments)
+            elif tool_name == 'get_ticket':
+                result = self.tool_get_ticket(arguments)
+            elif tool_name == 'list_user_tickets':
+                result = self.tool_list_user_tickets(arguments)
+            elif tool_name == 'create_ticket':
+                result = self.tool_create_ticket(arguments)
+            elif tool_name == 'update_ticket':
+                result = self.tool_update_ticket(arguments)
             else:
                 raise ValueError(f'Unknown tool: {tool_name}')
             
@@ -967,8 +1117,8 @@ class MCPServerHandler(BaseHTTPRequestHandler):
     def tool_semantic_search(self, args):
         """Search for relevant chunks from local database with threshold filtering"""
         query = args.get('query', '').strip()
-        limit = args.get('limit', 3)
-        threshold = args.get('threshold', SEMANTIC_SEARCH_CONFIG['default_threshold'])
+        limit = int(args.get('limit', 3)) if args.get('limit') else 3
+        threshold = float(args.get('threshold', SEMANTIC_SEARCH_CONFIG['default_threshold']))
         compare_mode = args.get('compare_mode', False)
 
         if not query:
@@ -1001,7 +1151,9 @@ class MCPServerHandler(BaseHTTPRequestHandler):
             # Apply threshold filtering and add citations
             filtered_documents = []
             for doc in documents:
-                if doc.get('similarity', 0) >= threshold:
+                # Convert similarity to float for comparison (might be string from DB)
+                similarity = float(doc.get('similarity', 0))
+                if similarity >= threshold:
                     # Add formatted citation
                     doc['citation'] = self.format_citation(doc)
 
@@ -1867,6 +2019,199 @@ class MCPServerHandler(BaseHTTPRequestHandler):
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
+    def tool_get_ticket(self, args):
+        """Get ticket details by ID"""
+        ticket_id = args.get('ticket_id')
+
+        if not ticket_id:
+            return {'success': False, 'error': 'ticket_id is required'}
+
+        try:
+            # Find ticket
+            ticket = next((t for t in CRM_TICKETS if t['id'] == ticket_id), None)
+
+            if not ticket:
+                return {'success': False, 'error': f'Ticket #{ticket_id} not found'}
+
+            # Get user info
+            user = next((u for u in CRM_USERS if u['id'] == ticket['user_id']), None)
+            user_info = {
+                'id': user['id'],
+                'name': user['name'],
+                'email': user['email']
+            } if user else None
+
+            return {
+                'success': True,
+                'ticket': ticket,
+                'user': user_info
+            }
+        except Exception as e:
+            self.log(f"❌ Failed to get ticket: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_list_user_tickets(self, args):
+        """List tickets for a user"""
+        user_id = args.get('user_id')
+        status_filter = args.get('status', 'all')
+
+        if not user_id:
+            return {'success': False, 'error': 'user_id is required'}
+
+        try:
+            # Find user
+            user = next((u for u in CRM_USERS if u['id'] == user_id), None)
+            if not user:
+                return {'success': False, 'error': f'User #{user_id} not found'}
+
+            # Filter tickets
+            user_tickets = [t for t in CRM_TICKETS if t['user_id'] == user_id]
+
+            if status_filter != 'all':
+                user_tickets = [t for t in user_tickets if t['status'] == status_filter]
+
+            return {
+                'success': True,
+                'user': {'id': user['id'], 'name': user['name'], 'email': user['email']},
+                'count': len(user_tickets),
+                'tickets': user_tickets
+            }
+        except Exception as e:
+            self.log(f"❌ Failed to list tickets: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_create_ticket(self, args):
+        """Create a new ticket"""
+        user_id = args.get('user_id')
+        title = args.get('title')
+        description = args.get('description')
+        priority = args.get('priority', 'medium')
+        category = args.get('category', 'other')
+
+        if not all([user_id, title, description]):
+            return {'success': False, 'error': 'user_id, title, and description are required'}
+
+        try:
+            # Validate user exists
+            user = next((u for u in CRM_USERS if u['id'] == user_id), None)
+            if not user:
+                return {'success': False, 'error': f'User #{user_id} not found'}
+
+            # Generate new ticket ID
+            new_id = max([t['id'] for t in CRM_TICKETS], default=0) + 1
+
+            # Create ticket
+            now = datetime.utcnow().isoformat() + 'Z'
+
+            new_ticket = {
+                'id': new_id,
+                'user_id': user_id,
+                'title': title,
+                'description': description,
+                'status': 'open',
+                'priority': priority,
+                'category': category,
+                'created_at': now,
+                'updated_at': now,
+                'assigned_to': None,
+                'history': [
+                    {
+                        'timestamp': now,
+                        'action': 'created',
+                        'author': user['name'],
+                        'note': 'Тикет создан через чат'
+                    }
+                ]
+            }
+
+            CRM_TICKETS.append(new_ticket)
+            save_crm_data()
+
+            self.log(f"✅ Created ticket #{new_id}: {title}")
+
+            return {
+                'success': True,
+                'ticket_id': new_id,
+                'ticket': new_ticket,
+                'message': f'Ticket #{new_id} created successfully'
+            }
+        except Exception as e:
+            self.log(f"❌ Failed to create ticket: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_update_ticket(self, args):
+        """Update ticket status or add notes"""
+        ticket_id = args.get('ticket_id')
+        new_status = args.get('status')
+        note = args.get('note')
+        assigned_to = args.get('assigned_to')
+
+        if not ticket_id:
+            return {'success': False, 'error': 'ticket_id is required'}
+
+        if not any([new_status, note, assigned_to]):
+            return {'success': False, 'error': 'At least one of status, note, or assigned_to is required'}
+
+        try:
+            # Find ticket
+            ticket = next((t for t in CRM_TICKETS if t['id'] == ticket_id), None)
+            if not ticket:
+                return {'success': False, 'error': f'Ticket #{ticket_id} not found'}
+
+            now = datetime.utcnow().isoformat() + 'Z'
+
+            changes = []
+
+            # Update status
+            if new_status and new_status != ticket['status']:
+                old_status = ticket['status']
+                ticket['status'] = new_status
+                changes.append(f"Status: {old_status} → {new_status}")
+
+                ticket['history'].append({
+                    'timestamp': now,
+                    'action': 'status_changed',
+                    'author': 'support_assistant',
+                    'note': f"Статус изменён: {old_status} → {new_status}"
+                })
+
+            # Update assignment
+            if assigned_to and assigned_to != ticket.get('assigned_to'):
+                ticket['assigned_to'] = assigned_to
+                changes.append(f"Assigned to: {assigned_to}")
+
+                ticket['history'].append({
+                    'timestamp': now,
+                    'action': 'assigned',
+                    'author': 'support_assistant',
+                    'note': f"Назначен агент: {assigned_to}"
+                })
+
+            # Add note
+            if note:
+                ticket['history'].append({
+                    'timestamp': now,
+                    'action': 'note_added',
+                    'author': 'support_assistant',
+                    'note': note
+                })
+                changes.append(f"Note added")
+
+            ticket['updated_at'] = now
+            save_crm_data()
+
+            self.log(f"✅ Updated ticket #{ticket_id}: {', '.join(changes)}")
+
+            return {
+                'success': True,
+                'ticket': ticket,
+                'changes': changes,
+                'message': f'Ticket #{ticket_id} updated successfully'
+            }
+        except Exception as e:
+            self.log(f"❌ Failed to update ticket: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
     def format_citation(self, doc, language='ru'):
         """
         Format citation in standard format
@@ -1940,6 +2285,7 @@ class MCPServerHandler(BaseHTTPRequestHandler):
 def run_server(host='0.0.0.0', port=8080, github_token=None):
     """Start MCP HTTP server"""
     init_database()
+    load_crm_data()
 
     # Set GitHub token if provided
     if github_token:
@@ -1956,7 +2302,7 @@ def run_server(host='0.0.0.0', port=8080, github_token=None):
     print(f'From Android emulator: http://10.0.2.2:{port}')
     print(f'From real device: http://<your-computer-ip>:{port}')
     print()
-    print('Available Tools (12):')
+    print('Available Tools (16):')
     print('  🔮 create_embedding      - Generate embeddings using local Ollama')
     print('  📝 save_document         - Save document with embeddings to local DB')
     print('  🔍 search_similar        - Search similar documents in local DB')
@@ -1969,6 +2315,10 @@ def run_server(host='0.0.0.0', port=8080, github_token=None):
     print('  📋 list_issues           - List GitHub issues')
     print('  📝 list_commits          - List repository commits')
     print('  📄 get_repo_content      - Get file content from GitHub')
+    print('  🎫 get_ticket            - Get support ticket details by ID')
+    print('  📋 list_user_tickets     - List all tickets for a user')
+    print('  ➕ create_ticket         - Create new support ticket')
+    print('  ✏️  update_ticket         - Update ticket status or add notes')
     print()
     print('Databases:')
     print(f'  📦 Embeddings: {EMBEDDINGS_DB_PATH}')

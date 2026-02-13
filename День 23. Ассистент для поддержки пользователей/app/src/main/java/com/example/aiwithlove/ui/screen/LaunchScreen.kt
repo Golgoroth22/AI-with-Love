@@ -7,9 +7,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -29,7 +32,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun LaunchScreen(
     onNavigateToAiAgent: () -> Unit,
-    onNavigateToDocIndexing: () -> Unit
+    onNavigateToDocIndexing: () -> Unit,
+    onNavigateToSupport: () -> Unit
 ) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background
@@ -39,10 +43,12 @@ fun LaunchScreen(
                 Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
+                    .verticalScroll(rememberScrollState())
                     .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Top
         ) {
+            Spacer(modifier = Modifier.height(32.dp))
             // App title
             Text(
                 text = "AI with Love",
@@ -54,7 +60,7 @@ fun LaunchScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "День 16: Индексация документов",
+                text = "День 23: Ассистент для поддержки пользователей",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -82,6 +88,20 @@ fun LaunchScreen(
                 icon = Icons.Default.Search,
                 onClick = onNavigateToDocIndexing
             )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Support Assistant Card Button
+            FeatureCard(
+                title = "Ассистент поддержки пользователей",
+                description =
+                    "Чат с AI-ассистентом, который автоматически создает тикеты в CRM и ищет решения в FAQ. " +
+                        "Агент помогает решать проблемы и обновляет статус тикетов после завершения.",
+                icon = Icons.Default.Info,
+                onClick = onNavigateToSupport
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
