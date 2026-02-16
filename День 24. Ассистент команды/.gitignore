@@ -4,6 +4,7 @@
 app/build/
 .idea/
 .kotlin/
+.claude/
 
 # Security: Never commit credentials
 app/src/main/java/com/example/aiwithlove/util/SecureData.kt
