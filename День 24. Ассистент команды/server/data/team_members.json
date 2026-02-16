@@ -1,0 +1,40 @@
+{
+  "members": [
+    {
+      "id": "1",
+      "name": "Борис Шустров",
+      "role": "Boss",
+      "skills": [
+        "Rage",
+        "KPI",
+        "Business courses"
+      ],
+      "availability": "available",
+      "current_workload": 8
+    },
+    {
+      "id": "2",
+      "name": "Антон Многодумов",
+      "role": "Backend Developer",
+      "skills": [
+        "Python",
+        "FastAPI",
+        "PostgreSQL"
+      ],
+      "availability": "available",
+      "current_workload": 0
+    },
+    {
+      "id": "3",
+      "name": "Наташа Петрова",
+      "role": "Frontend Developer",
+      "skills": [
+        "Kotlin",
+        "Compose",
+        "Android"
+      ],
+      "availability": "available",
+      "current_workload": 2
+    }
+  ]
+}

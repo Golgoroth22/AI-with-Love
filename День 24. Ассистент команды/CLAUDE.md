@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **AI with Love** is an educational Android application demonstrating agentic AI patterns with RAG (Retrieval-Augmented Generation) capabilities. The app integrates with a custom MCP (Model Context Protocol) server for tool execution and uses Perplexity's Agentic API for intelligent responses.
 
-**Current Day**: День 23 (Day 23) - Ассистент для поддержки пользователей (Support Assistant)
+**Current Day**: День 24 (Day 24) - Ассистент команды (Team Assistant)
 
 ## ⚡ Day 21 Updates: Local Processing Architecture
 
@@ -198,6 +198,158 @@ The AI automatically parses PR references from user messages:
 - Ticket ID parsing null → fixed with MCP content array parsing
 - FAQ giving wrong answers → restructured with direct answers at top
 
+## 👥 Team Assistant (Day 24)
+
+**New Feature**: Unified team assistant that combines support ticket management with task management, powered by RAG for smart recommendations.
+
+**Extension of Day 23**: The Support Assistant has been extended (NOT replaced) to handle both support tickets AND team task management in a single interface.
+
+**Architecture:** Extended `SupportViewModel` with:
+- **Intent Detection** - Automatically detects whether user wants support help or task management
+- **Task Management Tools** (6 new MCP tools) - Full CRUD for tasks with priority, assignee, status tracking
+- **Smart Assignment** - Uses team workload data for optimal task assignment
+- **Duplicate Detection** - Semantic search prevents duplicate tasks
+- **Hybrid Workflows** - Can create tasks from support tickets with automatic linking
+
+**Available Task Tools (6 tools in `http_mcp_server.py`):** 🆕
+- `create_task` - Create task with title, description, priority (low/medium/high), assignee, tags, optional ticket linkage
+- `list_tasks` - List tasks with filters (status, priority, assignee) and limit
+- `update_task` - Update status (todo/in_progress/done), priority, assignee, or add notes with full history tracking
+- `get_task` - Fetch full task details including history and linked ticket
+- `get_team_workload` - Get team members' current workload and availability for smart assignment
+- `search_similar_tasks` - Semantic search for similar tasks to prevent duplicates (threshold 0.6)
+
+**Intent Detection (Keyword-based):**
+The ViewModel automatically classifies user queries into 4 categories:
+
+1. **TASK_MANAGEMENT**: Keywords like "задач", "приоритет", "назначить", "статус задач", "workload"
+   - Routes to task tools (create_task, list_tasks, update_task, get_team_workload, search_similar_tasks)
+
+2. **SUPPORT_TICKET**: Keywords like "проблема", "не работает", "ошибка", "тикет", "баг"
+   - Routes to CRM tools (create_ticket, get_ticket, update_ticket)
+
+3. **HYBRID**: Both task AND support keywords detected
+   - Provides all tools for complex workflows like "create task from this ticket"
+
+4. **UNCLEAR**: No clear intent
+   - Provides all tools, lets AI decide based on context
+
+**UI Updates:**
+- **TopAppBar** now shows both ticket ID AND task context:
+  - "Тикет #12" - Current support ticket
+  - "• 5 задач" - Active tasks count
+  - "🔴 2" - High priority tasks count
+- **Welcome Message** updated to explain dual functionality
+- **Visual Distinction**: Messages show appropriate icons for ticket vs task operations
+
+**Task Data Storage:**
+- `server/data/tasks.json` - Task storage with auto-increment IDs
+- `server/data/team_members.json` - Team member database with skills, availability, workload counters
+- Task structure: id, title, description, status, priority, assignee, related_ticket_id, tags[], history[], timestamps
+
+**Example Workflows:**
+
+1. **Create High Priority Task**
+   ```
+   User: "Создай задачу: исправить баг с 2FA, высокий приоритет"
+
+   AI Actions:
+   - detect_intent → TASK_MANAGEMENT
+   - search_similar_tasks(query="баг 2FA") → check duplicates
+   - semantic_search(query="2FA authentication") → find docs
+   - create_task(title="Исправить баг с 2FA", priority="high")
+
+   Response: "✅ Создана задача #1 с высоким приоритетом.
+             Найдена документация: SECURITY.md"
+   ```
+
+2. **Show High Priority Tasks with Recommendations**
+   ```
+   User: "Покажи задачи с приоритетом high и что делать первым"
+
+   AI Actions:
+   - list_tasks(priority="high", status="todo")
+   - get_team_workload() → check availability
+   - semantic_search(query="task prioritization") → find guidelines
+
+   Response: "📋 Высокоприоритетные задачи:
+             1. Task #1: Исправить баг 2FA (не назначена)
+             2. Task #5: Оптимизация БД (Alice, загрузка: 3)
+
+             💡 Рекомендация: Начните с Task #1.
+             Можно назначить на Bob (загрузка: 1)"
+   ```
+
+3. **Hybrid: Create Task from Ticket**
+   ```
+   User: "Создай задачу для разработчиков из этого тикета"
+
+   AI Actions:
+   - detect_intent → HYBRID
+   - get_ticket(ticket_id=12) → fetch details
+   - search_similar_tasks() → no duplicates
+   - get_team_workload(role_filter="Backend Developer")
+   - create_task(related_ticket_id=12, assignee="developer_1")
+   - update_ticket(ticket_id=12, note="Создана задача #7")
+
+   Response: "✅ Создана задача #7, назначена на Alice Johnson.
+             Тикет #12 обновлён со ссылкой."
+   ```
+
+**Team Member Mock Data:**
+The system includes 3 sample team members (in `server/data/team_members.json`):
+- **ID 1**: Борис Шустров (Boss): Rage, KPI, Business courses
+- **ID 2**: Антон Многодумов (Backend Developer): Python, FastAPI, PostgreSQL
+- **ID 3**: Наташа Петрова (Frontend Developer): Kotlin, Compose, Android
+
+**Note**: Roles are stored in **English** but queries support **Russian** via automatic translation
+
+**Critical Implementation Details:**
+- **JSON Serialization**: All JsonArray string elements MUST be wrapped in `JsonPrimitive()` for kotlinx.serialization
+  ```kotlin
+  // CORRECT:
+  putJsonArray("enum") {
+      add(JsonPrimitive("low"))
+      add(JsonPrimitive("high"))
+  }
+
+  // INCORRECT (compilation error):
+  putJsonArray("enum") {
+      add("low")
+      add("high")
+  }
+  ```
+
+- **API Level Compatibility**: Use `SimpleDateFormat` instead of `java.time.LocalDate` for API 25
+  ```kotlin
+  // CORRECT (API 25+):
+  val currentDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+
+  // INCORRECT (requires API 26):
+  val currentDate = java.time.LocalDate.now()
+  ```
+
+- **Test Synchronization**: ViewModel init coroutines run on Dispatchers.IO, need explicit delays in tests
+  ```kotlin
+  private fun createViewModel() {
+      viewModel = ChatViewModel(...)
+      Thread.sleep(600) // Wait for init IO coroutines
+  }
+  ```
+
+**Navigation:**
+- LaunchScreen → "Ассистент команды" button → SupportScreen (unified interface)
+- Same screen handles both tickets and tasks based on intent detection
+
+**Known Issues Fixed (Day 24):**
+- JSON type mismatch in tool builders → wrapped strings in JsonPrimitive
+- API level incompatibility with java.time → replaced with SimpleDateFormat
+- Unit test timing issues → added Thread.sleep() synchronization (24/24 passing)
+- **Role filter language mismatch (2026-02-16)** → added Russian-to-English translation in `get_team_workload`
+  - Query "разработчик" now finds "Backend Developer" and "Frontend Developer"
+  - 10 translation mappings support common Russian role terms
+  - See `http_mcp_server.py` line ~2704 for implementation
+
 ## Build & Run Commands
 
 ### Android App
@@ -260,7 +412,8 @@ When testing with the Android emulator:
 │  Presentation Layer (Compose UI)            │
 │  - ChatScreen: Agentic chat interface       │
 │  - OllamaScreen: Document indexing UI       │
-│  - SupportScreen: Support assistant 🆕      │
+│  - SupportScreen: Team assistant (tickets   │
+│    + tasks) 🔄                              │
 │  - LaunchScreen: Navigation hub             │
 └────────────────┬────────────────────────────┘
                  │
@@ -268,7 +421,7 @@ When testing with the Android emulator:
 │  Domain Layer (ViewModels + Repository)     │
 │  - ChatViewModel: Agentic orchestration     │
 │  - OllamaViewModel: Document processing     │
-│  - SupportViewModel: Ticket management 🆕   │
+│  - SupportViewModel: Ticket + Task mgmt 🔄  │
 │  - ChatRepository: Database operations      │
 └────────────────┬────────────────────────────┘
                  │
@@ -279,23 +432,28 @@ When testing with the Android emulator:
 │  - McpClient: MCP server communication      │
 │  - AppDatabase: Room database (SQLite)      │
 │  - EmbeddingsDatabase: Local embeddings     │
-│  - CRM JSON files: Tickets & Users 🆕       │
+│  - JSON files: Tickets, Users, Tasks 🔄     │
 └─────────────────────────────────────────────┘
+
+Legend: 🆕 = New in Day 23, 🔄 = Extended in Day 24
 ```
 
-### Multi-Server MCP Architecture (Updated Day 23)
+### Multi-Server MCP Architecture (Updated Day 24)
 
 ```
 ChatViewModel / SupportViewModel
     ├─→ McpClientManager (routes tool calls)
     │       ├─→ McpClient("rag") → RAG Server (semantic_search)
     │       ├─→ McpClient("github") → GitHub MCP Server (get_repo, search_code, etc.)
-    │       └─→ McpClient("support") → Support Server (get_ticket, create_ticket, update_ticket) 🆕
+    │       └─→ McpClient("support") → Support Server (CRM + Task tools) 🆕
+    │               ├─ CRM: create_ticket, get_ticket, update_ticket, list_user_tickets
+    │               └─ Tasks: create_task, list_tasks, update_task, get_task,
+    │                         get_team_workload, search_similar_tasks
     │
     ├─→ OllamaClient → Local Ollama (embeddings)
     └─→ EmbeddingsRepository → Local SQLite (document storage)
 
-Note: SupportViewModel always uses "support" + "rag" servers (no user selection needed)
+Note: SupportViewModel always uses "support" + "rag" servers with intent-based tool routing
 ```
 
 ### Dependency Injection (Koin)
@@ -311,7 +469,7 @@ When adding new dependencies, update `appModule` in `AppModule.kt`.
 
 The MCP server (`server/http_mcp_server.py`) implements JSON-RPC 2.0 protocol with the following tools:
 
-**Available Tools (22 total):**
+**Available Tools (28 total):**
 
 **RAG/Embeddings (6 tools):**
 1. `semantic_search` - RAG-based semantic search with threshold filtering
@@ -328,11 +486,40 @@ The MCP server (`server/http_mcp_server.py`) implements JSON-RPC 2.0 protocol wi
 **Local Git (4 tools):**
 9. `git_status`, `git_branch`, `git_diff`, `git_pr_status`
 
-**Support/CRM (4 tools - Day 23):** 🆕
+**Support/CRM (4 tools - Day 23):**
 10. `create_ticket` - Auto-creates ticket with title, category, priority
 11. `get_ticket` - Fetches ticket details including full history
 12. `update_ticket` - Changes status or adds notes to ticket
 13. `list_user_tickets` - Lists all user tickets with filtering
+
+**Task Management (6 tools - Day 24):** 🆕
+14. `create_task` - Create task with priority, assignee, tags, ticket linkage
+15. `list_tasks` - List tasks with filters (status, priority, assignee)
+16. `update_task` - Update status, priority, assignee, add notes with history
+17. `get_task` - Get full task details including history and linked ticket
+18. `get_team_workload` - Get team members' workload and availability **with Russian-to-English role translation** 🔄
+19. `search_similar_tasks` - Semantic search for similar tasks (duplicate detection)
+
+**Role Translation Feature (Day 24 - 2026-02-16):** 🆕
+The `get_team_workload` tool now supports **automatic translation** of Russian role filters to English:
+- **Russian queries**: "разработчик", "босс", "менеджер", etc.
+- **Auto-translated to**: "developer", "boss", "manager", etc.
+- **Implementation**: `http_mcp_server.py` line ~2704 in `tool_get_team_workload()`
+- **Supported mappings**:
+  ```python
+  'разработчик': 'developer',     # Finds both Backend and Frontend Developer
+  'разработчиков': 'developer',   # Plural form
+  'backend': 'backend',
+  'frontend': 'frontend',
+  'босс': 'boss',
+  'начальник': 'boss',
+  'менеджер': 'manager',
+  'тестировщик': 'tester',
+  'qa': 'qa',
+  'дизайнер': 'designer',
+  'devops': 'devops'
+  ```
+- **Example**: Query "Покажи список разработчиков" → finds "Backend Developer" + "Frontend Developer"
 
 **Key Configuration:**
 - `EMBEDDINGS_DB_PATH` - SQLite database for document storage
@@ -457,10 +644,10 @@ Three main entities in `AppDatabase`:
 |-----------|---------------|
 | `app/src/main/java/com/example/aiwithlove/viewmodel/ChatViewModel.kt` | Agentic orchestration, tool execution, dialog management, PR review keyword detection and instructions |
 | `app/src/main/java/com/example/aiwithlove/viewmodel/OllamaViewModel.kt` | Document indexing, PDF processing |
-| `app/src/main/java/com/example/aiwithlove/viewmodel/SupportViewModel.kt` | **NEW (Day 23)**: Support ticket management, CRM integration, FAQ-powered responses |
+| `app/src/main/java/com/example/aiwithlove/viewmodel/SupportViewModel.kt` | **EXTENDED (Day 24)**: Unified team assistant with ticket + task management, intent detection, workload tracking |
 | `app/src/main/java/com/example/aiwithlove/ui/screen/ChatScreen.kt` | Chat UI, message rendering, MCP tool info display |
 | `app/src/main/java/com/example/aiwithlove/ui/screen/OllamaScreen.kt` | Document upload UI, indexing interface |
-| `app/src/main/java/com/example/aiwithlove/ui/screen/SupportScreen.kt` | **NEW (Day 23)**: Support assistant UI, ticket display, FAQ answers |
+| `app/src/main/java/com/example/aiwithlove/ui/screen/SupportScreen.kt` | **EXTENDED (Day 24)**: Team assistant UI, shows ticket ID + task context in TopAppBar, updated welcome message |
 | `app/src/main/java/com/example/aiwithlove/ui/screen/LaunchScreen.kt` | **UPDATED (Day 23)**: Added Support button, made scrollable |
 | `app/src/main/java/com/example/aiwithlove/mcp/McpClient.kt` | MCP server communication via JSON-RPC with auth support |
 | `app/src/main/java/com/example/aiwithlove/mcp/McpClientManager.kt` | **NEW (Day 21)**: Multi-server routing for RAG + GitHub |
@@ -474,11 +661,13 @@ Three main entities in `AppDatabase`:
 
 | File Path | Responsibility |
 |-----------|---------------|
-| `server/http_mcp_server.py` | Main server implementation, tool handlers, JSON-RPC protocol (RAG + GitHub + CRM tools) |
+| `server/http_mcp_server.py` | Main server implementation, tool handlers, JSON-RPC protocol (RAG + GitHub + CRM + Task tools) |
 | `server/test_http_mcp_server.py` | Test suite (26 tests) |
 | `server/data/embeddings.db` | SQLite database for document embeddings |
-| `server/data/crm_tickets.json` | **NEW (Day 23)**: CRM ticket storage with auto-increment IDs |
-| `server/data/crm_users.json` | **NEW (Day 23)**: Mock user database (3 users) |
+| `server/data/crm_tickets.json` | **Day 23**: CRM ticket storage with auto-increment IDs |
+| `server/data/crm_users.json` | **Day 23**: Mock user database (3 users) |
+| `server/data/tasks.json` | **NEW (Day 24)**: Task storage with auto-increment IDs, priority, status, assignee |
+| `server/data/team_members.json` | **NEW (Day 24)**: Team member database with skills, availability, workload tracking |
 | `server/deploy_quick.sh` | Remote server deployment script |
 
 ## Important Conventions
@@ -763,6 +952,116 @@ curl http://localhost:11434/api/embeddings -d '{"model":"nomic-embed-text","prom
   ```
 - Verify chunks saved: `sqlite3 server/data/embeddings.db "SELECT COUNT(*) FROM documents WHERE source_file='FAQ.md';"`
 - Should see 52 chunks for current FAQ.md
+
+### Team Assistant Issues (Day 24)
+
+**Problem:** JSON type mismatch when building tool definitions
+
+**Error:** "Argument type mismatch: actual type is 'kotlin.String', but 'kotlinx.serialization.json.JsonElement' was expected"
+
+**Solution:**
+- When building JsonArrays with kotlinx.serialization, primitive values MUST be wrapped in `JsonPrimitive()`
+- Common locations: tool parameter enums and required fields
+- Example fix:
+  ```kotlin
+  // INCORRECT:
+  putJsonArray("enum") { add("low"); add("high") }
+  putJsonArray("required") { add("title"); add("description") }
+
+  // CORRECT:
+  putJsonArray("enum") { add(JsonPrimitive("low")); add(JsonPrimitive("high")) }
+  putJsonArray("required") { add(JsonPrimitive("title")); add(JsonPrimitive("description")) }
+  ```
+- Affects files: `SupportViewModel.kt` tool builders (buildCreateTaskTool, buildListTasksTool, etc.)
+
+**Problem:** API level compatibility error
+
+**Error:** "Call requires API level 26 (current min is 25): java.time.LocalDate#now"
+
+**Solution:**
+- Replace `java.time.*` APIs with `java.text.SimpleDateFormat` and `java.util.Date`
+- Example fix:
+  ```kotlin
+  // INCORRECT (requires API 26):
+  val currentDate = java.time.LocalDate.now()
+
+  // CORRECT (works on API 25):
+  val currentDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+  ```
+- Location: `SupportViewModel.kt` line ~626 in `buildSupportInstructions()`
+
+**Problem:** Unit tests failing with timing issues
+
+**Error:** Tests fail intermittently with `AssertionError` or `UncaughtExceptionsBeforeTest`
+
+**Root cause:**
+- ViewModel's `init` block launches coroutines with `viewModelScope.launch(Dispatchers.IO)`
+- These run on real thread pool, not controlled by test dispatcher
+- Tests check state before async initialization completes
+
+**Solution:**
+- Use `UnconfinedTestDispatcher` for immediate execution
+- Add explicit `Thread.sleep()` delays in test setup and after async operations
+- Example fixes:
+  ```kotlin
+  private fun createViewModel() {
+      viewModel = ChatViewModel(...)
+      Thread.sleep(600) // Wait for init IO coroutines to complete
+  }
+
+  @Test
+  fun `API failure shows error message`() = runTest {
+      viewModel.sendMessage("Test")
+      Thread.sleep(300) // Wait for async sendMessage to complete
+
+      val messages = viewModel.messages.value
+      // assertions...
+  }
+  ```
+- Common delay values: 600ms for createViewModel(), 300-500ms after sendMessage()
+- Result: All 24 tests passing with 0 failures
+
+**Problem:** Task count not updating in UI
+
+**Solution:**
+- Ensure `refreshTaskContext()` is called after task operations
+- Check `_taskContext.value` is properly set in ViewModel
+- Verify `taskContext` StateFlow is collected in Composable
+- TopAppBar should observe `taskContext.collectAsState()`
+
+**Problem:** "Покажи список разработчиков" returns empty list (0 members)
+
+**Status:** ✅ **FIXED** (2026-02-16)
+
+**Previous cause:** Language mismatch - Russian query "разработчик" didn't match English roles "Backend Developer"
+
+**Current solution:**
+- Server now automatically translates Russian role filters to English
+- Implementation in `http_mcp_server.py` line ~2704
+- Translation dictionary with 10 common mappings
+
+**Verification:**
+```bash
+# Test Russian filter
+curl -X POST http://localhost:8080 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "get_team_workload",
+      "arguments": {"role_filter": "разработчик"}
+    },
+    "id": 1
+  }'
+
+# Expected: Returns 2 members (Антон Многодумов, Наташа Петрова)
+```
+
+**If translation not working:**
+1. Restart MCP server to apply changes: `pkill -f http_mcp_server.py && cd server && python3 http_mcp_server.py`
+2. Verify translation dict exists: `grep -A 5 "role_translations" server/http_mcp_server.py`
+3. Check team_members.json has English roles: `cat server/data/team_members.json | grep "role"`
 
 ## Documentation Index
 

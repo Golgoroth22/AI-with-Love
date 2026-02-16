@@ -12,8 +12,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -60,7 +60,7 @@ fun LaunchScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "День 23: Ассистент для поддержки пользователей",
+                text = "День 24: Ассистент команды",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -91,13 +91,14 @@ fun LaunchScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Support Assistant Card Button
+            // Team Assistant Card Button
             FeatureCard(
-                title = "Ассистент поддержки пользователей",
+                title = "Ассистент команды",
                 description =
-                    "Чат с AI-ассистентом, который автоматически создает тикеты в CRM и ищет решения в FAQ. " +
-                        "Агент помогает решать проблемы и обновляет статус тикетов после завершения.",
-                icon = Icons.Default.Info,
+                    "Унифицированный чат для управления командой: создание и назначение задач, " +
+                        "отслеживание загрузки разработчиков, работа с тикетами поддержки. " +
+                        "Быстрое создание задач через форму или умное назначение через AI с учётом загрузки команды.",
+                icon = Icons.Default.Star,
                 onClick = onNavigateToSupport
             )
 

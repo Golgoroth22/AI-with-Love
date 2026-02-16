@@ -6,7 +6,7 @@
       "email": "ivan.petrov@example.com",
       "account_status": "active",
       "registration_date": "2025-01-15",
-      "subscription_tier": "premium"
+      "subscription_tier": "admin"
     },
     {
       "id": 2,
@@ -14,7 +14,7 @@
       "email": "maria.sidorova@example.com",
       "account_status": "active",
       "registration_date": "2025-02-01",
-      "subscription_tier": "free"
+      "subscription_tier": "developer"
     },
     {
       "id": 3,
@@ -22,7 +22,7 @@
       "email": "alexey.ivanov@example.com",
       "account_status": "suspended",
       "registration_date": "2024-12-10",
-      "subscription_tier": "basic"
+      "subscription_tier": "qa"
     }
   ]
 }

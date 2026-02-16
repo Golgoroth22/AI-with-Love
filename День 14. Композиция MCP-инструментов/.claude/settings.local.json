@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/falin/AndroidStudioProjects/AI-with-Love/**)",
+      "Bash(curl:*)",
+      "Bash(echo:*)",
+      "Bash(chmod:*)",
+      "Bash(source:*)",
+      "Bash(vpn-manager.sh status:*)",
+      "Bash(vpn status:*)",
+      "Bash(ls:*)",
+      "Bash(~/bin/vpn-manager.sh:*)",
+      "Bash(node:*)",
+      "Bash(claude:*)"
+    ]
+  }
+}

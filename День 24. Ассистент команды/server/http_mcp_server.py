@@ -149,6 +149,78 @@ def save_crm_data():
     except Exception as e:
         print(f"❌ Failed to save CRM data: {str(e)}")
 
+# Task management storage
+def init_task_storage():
+    """Initialize task storage files"""
+    tasks_file = os.path.join(CRM_DATA_DIR, 'tasks.json')
+    team_members_file = os.path.join(CRM_DATA_DIR, 'team_members.json')
+
+    if not os.path.exists(tasks_file):
+        with open(tasks_file, 'w', encoding='utf-8') as f:
+            json.dump({"tasks": [], "next_id": 1}, f, indent=2)
+        print("✅ Created tasks.json")
+
+    if not os.path.exists(team_members_file):
+        with open(team_members_file, 'w', encoding='utf-8') as f:
+            json.dump({"members": [
+                {
+                    "id": "developer_1",
+                    "name": "Alice Johnson",
+                    "role": "Backend Developer",
+                    "skills": ["Python", "FastAPI", "PostgreSQL"],
+                    "availability": "available",
+                    "current_workload": 0
+                },
+                {
+                    "id": "developer_2",
+                    "name": "Bob Smith",
+                    "role": "Frontend Developer",
+                    "skills": ["Kotlin", "Compose", "Android"],
+                    "availability": "available",
+                    "current_workload": 0
+                }
+            ]}, f, indent=2, ensure_ascii=False)
+        print("✅ Created team_members.json with sample data")
+
+def load_tasks():
+    """Load tasks from JSON file"""
+    tasks_file = os.path.join(CRM_DATA_DIR, 'tasks.json')
+    try:
+        with open(tasks_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except:
+        return {"tasks": [], "next_id": 1}
+
+def save_tasks(data):
+    """Save tasks to JSON file"""
+    tasks_file = os.path.join(CRM_DATA_DIR, 'tasks.json')
+    with open(tasks_file, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def load_team_members():
+    """Load team members from JSON file"""
+    team_members_file = os.path.join(CRM_DATA_DIR, 'team_members.json')
+    try:
+        with open(team_members_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except:
+        return {"members": []}
+
+def update_team_workload(member_id, increment=1):
+    """Update team member workload counter"""
+    team_members_file = os.path.join(CRM_DATA_DIR, 'team_members.json')
+    try:
+        team_data = load_team_members()
+        member = next((m for m in team_data['members'] if m['id'] == member_id), None)
+
+        if member:
+            member['current_workload'] = max(0, member.get('current_workload', 0) + increment)
+
+            with open(team_members_file, 'w', encoding='utf-8') as f:
+                json.dump(team_data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"⚠️ Failed to update workload for {member_id}: {str(e)}")
+
 # Database helper utilities
 def _serialize_embedding(embedding):
     """Convert embedding list to binary blob"""
@@ -851,6 +923,154 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                     },
                     'required': ['ticket_id']
                 }
+            },
+            {
+                'name': 'list_users',
+                'description': 'List all available users from CRM database',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {}
+                }
+            },
+            # Task management tools
+            {
+                'name': 'create_task',
+                'description': 'Create a new task ONLY when user explicitly requests it. ALWAYS ask user for priority (low/medium/high) if not specified in their message.',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'title': {
+                            'type': 'string',
+                            'description': 'Brief task title (max 100 chars)'
+                        },
+                        'description': {
+                            'type': 'string',
+                            'description': 'Detailed task description'
+                        },
+                        'priority': {
+                            'type': 'string',
+                            'enum': ['low', 'medium', 'high'],
+                            'description': 'Task priority level - REQUIRED, must ask user if not specified'
+                        },
+                        'assignee': {
+                            'type': 'string',
+                            'description': 'Team member ID (optional)'
+                        },
+                        'related_ticket_id': {
+                            'type': 'integer',
+                            'description': 'Link to support ticket (optional)'
+                        },
+                        'tags': {
+                            'type': 'array',
+                            'items': {'type': 'string'},
+                            'description': 'Task tags for categorization'
+                        }
+                    },
+                    'required': ['title', 'description', 'priority']
+                }
+            },
+            {
+                'name': 'list_tasks',
+                'description': 'List tasks with filtering by status, priority, assignee',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'status': {
+                            'type': 'string',
+                            'enum': ['todo', 'in_progress', 'done', 'all'],
+                            'default': 'all'
+                        },
+                        'priority': {
+                            'type': 'string',
+                            'enum': ['low', 'medium', 'high', 'all'],
+                            'default': 'all'
+                        },
+                        'assignee': {
+                            'type': 'string',
+                            'description': 'Filter by assignee ID'
+                        },
+                        'limit': {
+                            'type': 'integer',
+                            'default': 10
+                        }
+                    }
+                }
+            },
+            {
+                'name': 'update_task',
+                'description': 'Update task status, priority, assignee, or add notes',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'task_id': {
+                            'type': 'integer'
+                        },
+                        'status': {
+                            'type': 'string',
+                            'enum': ['todo', 'in_progress', 'done']
+                        },
+                        'priority': {
+                            'type': 'string',
+                            'enum': ['low', 'medium', 'high']
+                        },
+                        'assignee': {
+                            'type': 'string'
+                        },
+                        'note': {
+                            'type': 'string',
+                            'description': 'Add note to history'
+                        }
+                    },
+                    'required': ['task_id']
+                }
+            },
+            {
+                'name': 'get_task',
+                'description': 'Get full task details including history and linked ticket',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'task_id': {
+                            'type': 'integer'
+                        }
+                    },
+                    'required': ['task_id']
+                }
+            },
+            {
+                'name': 'get_team_workload',
+                'description': 'Get team members current workload and availability',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'role_filter': {
+                            'type': 'string',
+                            'description': 'Filter by role (optional)'
+                        }
+                    }
+                }
+            },
+            {
+                'name': 'search_similar_tasks',
+                'description': 'Find similar tasks using semantic search',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'query': {
+                            'type': 'string',
+                            'description': 'Task description or keywords'
+                        },
+                        'limit': {
+                            'type': 'integer',
+                            'default': 5
+                        },
+                        'threshold': {
+                            'type': 'number',
+                            'default': 0.6
+                        }
+                    },
+                    'required': ['query']
+                }
             }
         ]
 
@@ -919,6 +1139,20 @@ class MCPServerHandler(BaseHTTPRequestHandler):
                 result = self.tool_create_ticket(arguments)
             elif tool_name == 'update_ticket':
                 result = self.tool_update_ticket(arguments)
+            elif tool_name == 'list_users':
+                result = self.tool_list_users(arguments)
+            elif tool_name == 'create_task':
+                result = self.tool_create_task(arguments)
+            elif tool_name == 'list_tasks':
+                result = self.tool_list_tasks(arguments)
+            elif tool_name == 'update_task':
+                result = self.tool_update_task(arguments)
+            elif tool_name == 'get_task':
+                result = self.tool_get_task(arguments)
+            elif tool_name == 'get_team_workload':
+                result = self.tool_get_team_workload(arguments)
+            elif tool_name == 'search_similar_tasks':
+                result = self.tool_search_similar_tasks(arguments)
             else:
                 raise ValueError(f'Unknown tool: {tool_name}')
             
@@ -2212,6 +2446,361 @@ class MCPServerHandler(BaseHTTPRequestHandler):
             self.log(f"❌ Failed to update ticket: {str(e)}")
             return {'success': False, 'error': str(e)}
 
+    def tool_list_users(self, args):
+        """List all available users from CRM"""
+        try:
+            global CRM_USERS
+
+            # CRM_USERS is already loaded at server startup
+            users = CRM_USERS
+
+            self.log(f"✅ Retrieved {len(users)} users")
+
+            return {
+                'success': True,
+                'users': users,
+                'count': len(users)
+            }
+        except Exception as e:
+            self.log(f"❌ Failed to list users: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    # ==================== Task Management Tools ====================
+
+    def tool_create_task(self, args):
+        """Create a new task"""
+        title = args.get('title')
+        description = args.get('description')
+        priority = args.get('priority', 'medium')
+        assignee = args.get('assignee')
+        related_ticket_id = args.get('related_ticket_id')
+        tags = args.get('tags', [])
+
+        if not all([title, description]):
+            return {'success': False, 'error': 'title and description are required'}
+
+        try:
+            data = load_tasks()
+            task_id = data["next_id"]
+
+            now = datetime.utcnow().isoformat() + 'Z'
+
+            new_task = {
+                'id': task_id,
+                'title': title,
+                'description': description,
+                'status': 'todo',
+                'priority': priority,
+                'assignee': assignee,
+                'created_by': 1,  # Mock user ID
+                'related_ticket_id': related_ticket_id,
+                'tags': tags,
+                'created_at': now,
+                'updated_at': now,
+                'history': [{
+                    'timestamp': now,
+                    'action': 'created',
+                    'user_id': 1,
+                    'details': f"Task created with priority {priority}"
+                }]
+            }
+
+            data['tasks'].append(new_task)
+            data['next_id'] += 1
+            save_tasks(data)
+
+            # Update assignee workload if present
+            if assignee:
+                update_team_workload(assignee, increment=1)
+
+            self.log(f"✅ Created task #{task_id}: {title}")
+
+            return {
+                'success': True,
+                'task_id': task_id,
+                'status': 'created',
+                'priority': priority,
+                'assignee': assignee
+            }
+        except Exception as e:
+            self.log(f"❌ Failed to create task: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_list_tasks(self, args):
+        """List tasks with filtering"""
+        status_filter = args.get('status', 'all')
+        priority_filter = args.get('priority', 'all')
+        assignee_filter = args.get('assignee')
+        limit = args.get('limit', 10)
+
+        try:
+            data = load_tasks()
+            tasks = data['tasks']
+
+            # Apply filters
+            if status_filter != 'all':
+                tasks = [t for t in tasks if t['status'] == status_filter]
+
+            if priority_filter != 'all':
+                tasks = [t for t in tasks if t['priority'] == priority_filter]
+
+            if assignee_filter:
+                # Support multi-assignee tasks (e.g., "2,3")
+                # Check if assignee_filter is in the comma-separated list
+                tasks = [t for t in tasks if assignee_filter in str(t.get('assignee', '')).split(',')]
+
+            # Sort by priority (high > medium > low) then by created date
+            priority_order = {'high': 0, 'medium': 1, 'low': 2}
+            tasks.sort(key=lambda t: (priority_order.get(t['priority'], 3), t['created_at']), reverse=True)
+
+            tasks = tasks[:limit]
+
+            # Return summaries
+            return {
+                'success': True,
+                'total': len(tasks),
+                'tasks': [
+                    {
+                        'id': t['id'],
+                        'title': t['title'],
+                        'status': t['status'],
+                        'priority': t['priority'],
+                        'assignee': t.get('assignee', 'unassigned')
+                    }
+                    for t in tasks
+                ]
+            }
+        except Exception as e:
+            self.log(f"❌ Failed to list tasks: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_update_task(self, args):
+        """Update task status, priority, assignee, or add notes"""
+        task_id = args.get('task_id')
+        new_status = args.get('status')
+        new_priority = args.get('priority')
+        new_assignee = args.get('assignee')
+        note = args.get('note')
+
+        if not task_id:
+            return {'success': False, 'error': 'task_id is required'}
+
+        try:
+            data = load_tasks()
+            task = next((t for t in data['tasks'] if t['id'] == task_id), None)
+
+            if not task:
+                return {'success': False, 'error': f'Task #{task_id} not found'}
+
+            now = datetime.utcnow().isoformat() + 'Z'
+            changes = []
+
+            # Update status
+            if new_status and new_status != task['status']:
+                old_status = task['status']
+                task['status'] = new_status
+                changes.append(f"Status: {old_status} → {new_status}")
+                task['history'].append({
+                    'timestamp': now,
+                    'action': 'status_changed',
+                    'user_id': 1,
+                    'old_value': old_status,
+                    'new_value': new_status
+                })
+
+            # Update priority
+            if new_priority and new_priority != task['priority']:
+                old_priority = task['priority']
+                task['priority'] = new_priority
+                changes.append(f"Priority: {old_priority} → {new_priority}")
+                task['history'].append({
+                    'timestamp': now,
+                    'action': 'priority_changed',
+                    'user_id': 1,
+                    'old_value': old_priority,
+                    'new_value': new_priority
+                })
+
+            # Update assignee
+            if new_assignee and new_assignee != task.get('assignee'):
+                old_assignee = task.get('assignee', 'unassigned')
+
+                # Update workload counters
+                if old_assignee and old_assignee != 'unassigned':
+                    update_team_workload(old_assignee, increment=-1)
+                update_team_workload(new_assignee, increment=1)
+
+                task['assignee'] = new_assignee
+                changes.append(f"Assignee: {old_assignee} → {new_assignee}")
+                task['history'].append({
+                    'timestamp': now,
+                    'action': 'assignee_changed',
+                    'user_id': 1,
+                    'old_value': old_assignee,
+                    'new_value': new_assignee
+                })
+
+            # Add note
+            if note:
+                task['history'].append({
+                    'timestamp': now,
+                    'action': 'note_added',
+                    'user_id': 1,
+                    'note': note
+                })
+                changes.append(f"Note added: {note[:50]}...")
+
+            task['updated_at'] = now
+            save_tasks(data)
+
+            self.log(f"✅ Updated task #{task_id}: {', '.join(changes)}")
+
+            return {
+                'success': True,
+                'task_id': task_id,
+                'status': task['status'],
+                'priority': task['priority'],
+                'assignee': task.get('assignee'),
+                'changes': changes,
+                'history': task['history']
+            }
+        except Exception as e:
+            self.log(f"❌ Failed to update task: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_get_task(self, args):
+        """Get full task details"""
+        task_id = args.get('task_id')
+
+        if not task_id:
+            return {'success': False, 'error': 'task_id is required'}
+
+        try:
+            data = load_tasks()
+            task = next((t for t in data['tasks'] if t['id'] == task_id), None)
+
+            if not task:
+                return {'success': False, 'error': f'Task #{task_id} not found'}
+
+            return {
+                'success': True,
+                'task': task
+            }
+        except Exception as e:
+            self.log(f"❌ Failed to get task: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_get_team_workload(self, args):
+        """Get team members' workload and availability"""
+        role_filter = args.get('role_filter')
+
+        try:
+            team_data = load_team_members()
+            members = team_data['members']
+
+            if role_filter:
+                # Translation mapping: Russian → English role names
+                role_translations = {
+                    'разработчик': 'developer',
+                    'разработчиков': 'developer',
+                    'backend': 'backend',
+                    'frontend': 'frontend',
+                    'босс': 'boss',
+                    'начальник': 'boss',
+                    'менеджер': 'manager',
+                    'тестировщик': 'tester',
+                    'qa': 'qa',
+                    'дизайнер': 'designer',
+                    'devops': 'devops',
+                }
+
+                # Translate role_filter if it's in Russian
+                translated_filter = role_translations.get(role_filter.lower(), role_filter.lower())
+
+                # Use substring match instead of exact match
+                # This allows "developer" to match "Backend Developer" and "Frontend Developer"
+                members = [m for m in members if translated_filter in m.get('role', '').lower()]
+
+            # Calculate actual workload from tasks
+            tasks_data = load_tasks()
+            for member in members:
+                # Support multi-assignee tasks (e.g., "2,3")
+                # Check if member ID is in the comma-separated assignee list
+                assigned_tasks = [t for t in tasks_data['tasks']
+                                if member['id'] in str(t.get('assignee', '')).split(',')
+                                and t['status'] in ['todo', 'in_progress']]
+                member['current_workload'] = len(assigned_tasks)
+                member['tasks'] = [{'id': t['id'], 'title': t['title']} for t in assigned_tasks]
+
+            # Sort by workload (ascending)
+            members.sort(key=lambda m: m['current_workload'])
+
+            return {
+                'success': True,
+                'members': members
+            }
+        except Exception as e:
+            self.log(f"❌ Failed to get team workload: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+    def tool_search_similar_tasks(self, args):
+        """Search for similar tasks using semantic similarity"""
+        query = args.get('query')
+        limit = args.get('limit', 5)
+        threshold = args.get('threshold', 0.6)
+
+        if not query:
+            return {'success': False, 'error': 'query is required'}
+
+        try:
+            # Get embedding for query
+            embedding_result = self.tool_create_embedding({'text': query})
+            if not embedding_result.get('success'):
+                return {'success': False, 'error': 'Failed to create query embedding'}
+
+            query_embedding = embedding_result['embedding']
+
+            # Load all tasks
+            data = load_tasks()
+            tasks = data['tasks']
+
+            # Calculate similarity for each task (using title + description)
+            similarities = []
+            for task in tasks:
+                task_text = f"{task['title']} {task['description']}"
+
+                # Get embedding for task
+                task_emb_result = self.tool_create_embedding({'text': task_text})
+                if not task_emb_result.get('success'):
+                    continue
+
+                task_embedding = task_emb_result['embedding']
+
+                # Calculate cosine similarity
+                similarity = self.cosine_similarity(query_embedding, task_embedding)
+
+                if similarity >= threshold:
+                    similarities.append({
+                        'task_id': task['id'],
+                        'title': task['title'],
+                        'status': task['status'],
+                        'priority': task['priority'],
+                        'similarity': float(similarity)
+                    })
+
+            # Sort by similarity (descending) and limit
+            similarities.sort(key=lambda x: x['similarity'], reverse=True)
+            similarities = similarities[:limit]
+
+            return {
+                'success': True,
+                'tasks': similarities,
+                'total': len(similarities)
+            }
+        except Exception as e:
+            self.log(f"❌ Failed to search similar tasks: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
     def format_citation(self, doc, language='ru'):
         """
         Format citation in standard format
@@ -2286,6 +2875,7 @@ def run_server(host='0.0.0.0', port=8080, github_token=None):
     """Start MCP HTTP server"""
     init_database()
     load_crm_data()
+    init_task_storage()
 
     # Set GitHub token if provided
     if github_token:
@@ -2302,7 +2892,7 @@ def run_server(host='0.0.0.0', port=8080, github_token=None):
     print(f'From Android emulator: http://10.0.2.2:{port}')
     print(f'From real device: http://<your-computer-ip>:{port}')
     print()
-    print('Available Tools (16):')
+    print('Available Tools (22):')
     print('  🔮 create_embedding      - Generate embeddings using local Ollama')
     print('  📝 save_document         - Save document with embeddings to local DB')
     print('  🔍 search_similar        - Search similar documents in local DB')
@@ -2319,6 +2909,12 @@ def run_server(host='0.0.0.0', port=8080, github_token=None):
     print('  📋 list_user_tickets     - List all tickets for a user')
     print('  ➕ create_ticket         - Create new support ticket')
     print('  ✏️  update_ticket         - Update ticket status or add notes')
+    print('  ✅ create_task           - Create new task with priority and assignment')
+    print('  📋 list_tasks            - List tasks with filters (status, priority, assignee)')
+    print('  ✏️  update_task           - Update task status, priority, or assignee')
+    print('  📄 get_task              - Get full task details with history')
+    print('  👥 get_team_workload     - Get team members workload and availability')
+    print('  🔍 search_similar_tasks  - Find similar tasks using semantic search')
     print()
     print('Databases:')
     print(f'  📦 Embeddings: {EMBEDDINGS_DB_PATH}')

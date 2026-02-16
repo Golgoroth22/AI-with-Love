@@ -1,0 +1,60 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Авторизация с помощью улыбки",
+      "description": "Я устал каждый раз вводить пароль при авторизации. Хочу просто улыбаться в монитор и авторизовываться!",
+      "status": "todo",
+      "priority": "medium",
+      "assignee": "1",
+      "created_by": 1,
+      "related_ticket_id": null,
+      "tags": "[]",
+      "created_at": "2026-02-16T05:02:32.868863Z",
+      "updated_at": "2026-02-16T05:02:32.868863Z",
+      "history": [
+        {
+          "timestamp": "2026-02-16T05:02:32.868863Z",
+          "action": "created",
+          "user_id": 1,
+          "details": "Task created with priority medium"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Перекрасить кнопки на главном экране",
+      "description": "Я хочу чтобы кнопки на главном экране теперь были красные! И Нужно добавить скругление для левого нижнего угла у каждой кнопки!",
+      "status": "todo",
+      "priority": "high",
+      "assignee": "3",
+      "created_by": 1,
+      "related_ticket_id": null,
+      "tags": "[]",
+      "created_at": "2026-02-16T05:03:37.003591Z",
+      "updated_at": "2026-02-16T05:04:37.170985Z",
+      "history": [
+        {
+          "timestamp": "2026-02-16T05:03:37.003591Z",
+          "action": "created",
+          "user_id": 1,
+          "details": "Task created with priority high"
+        },
+        {
+          "timestamp": "2026-02-16T05:04:37.170985Z",
+          "action": "assignee_changed",
+          "user_id": 1,
+          "old_value": "1",
+          "new_value": "3"
+        },
+        {
+          "timestamp": "2026-02-16T05:04:37.170985Z",
+          "action": "note_added",
+          "user_id": 1,
+          "note": "Назначаю задачу 2 на Наташу Петрову (id 3). Проверена загрузка — Наташа доступна."
+        }
+      ]
+    }
+  ],
+  "next_id": 3
+}
