@@ -13,3 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+.claude/
+
+# Sensitive data - NEVER commit these files
+**/SecureData.kt
+!**/SecureData.kt.example
