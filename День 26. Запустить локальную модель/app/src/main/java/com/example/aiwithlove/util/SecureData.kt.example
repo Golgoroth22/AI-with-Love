@@ -1,0 +1,33 @@
+package com.example.aiwithlove.util
+
+/**
+ * SecureData - Contains sensitive configuration data
+ *
+ * ⚠️ SECURITY WARNING:
+ * This file contains sensitive information and should NEVER be committed to version control.
+ * It is listed in .gitignore to prevent accidental commits.
+ *
+ * For new developers:
+ * 1. Copy SecureData.kt.example to SecureData.kt
+ * 2. Replace placeholder values with actual credentials
+ * 3. Never commit this file to Git
+ */
+object SecureData {
+    /**
+     * MCP Server Configuration
+     */
+    const val SERVER_IP = "YOUR_SERVER_IP"  // e.g., "192.168.1.100" or "example.com"
+    const val SERVER_PORT = 8080             // Default MCP server port
+
+    /**
+     * Optional: Server credentials (if authentication is added in the future)
+     */
+    const val SERVER_USERNAME = ""  // Leave empty if not using authentication
+    const val SERVER_PASSWORD = ""  // Leave empty if not using authentication
+
+    /**
+     * Derived URLs
+     */
+    val MCP_SERVER_URL: String
+        get() = "http://$SERVER_IP:$SERVER_PORT"
+}

@@ -1,0 +1,16 @@
+*.iml
+.gradle
+/local.properties
+.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+gradle/
+.claude/
+
+# Sensitive data - NEVER commit these files
+**/SecureData.kt
+!**/SecureData.kt.example
