@@ -8,7 +8,7 @@ All sensitive configuration data has been moved to a separate `SecureData.kt` fi
 
 ```
 app/src/main/java/com/example/aiwithlove/util/
-├── SecureData.kt           ❌ NOT in Git (contains real credentials)
+├── SecureData.kt           ❌ NOT in Git (contains server configuration)
 ├── SecureData.kt.example   ✅ In Git (template with placeholders)
 └── ServerConfig.kt         ✅ In Git (uses SecureData)
 ```
@@ -24,9 +24,10 @@ If you're setting up this project for the first time:
    ```
 
 2. **Edit SecureData.kt:**
-   - Replace `YOUR_SERVER_IP` with actual server IP
-   - Update port if different from 8080
-   - Add credentials if authentication is enabled
+   - For **Android Emulator**: Use `SERVER_IP = "10.0.2.2"` (routes to host machine's localhost)
+   - For **Physical Device**: Use your machine's local IP (e.g., `"192.168.1.100"`)
+   - For **Remote Server**: Use server's public IP address
+   - Port should be `11434` (Ollama default)
 
 3. **Verify it's gitignored:**
    ```bash
@@ -38,12 +39,22 @@ If you're setting up this project for the first time:
 
 ```kotlin
 object SecureData {
-    const val SERVER_IP = "YOUR_SERVER_IP"
-    const val SERVER_PORT = 8080
-    const val SERVER_USERNAME = ""  // Optional
-    const val SERVER_PASSWORD = ""  // Optional
+    /**
+     * Ollama Server Configuration
+     *
+     * DEVELOPMENT SETUP (localhost):
+     * - Android Emulator: Use "10.0.2.2" (special emulator IP to reach host machine)
+     * - Physical Device: Use your machine's local network IP (e.g., "192.168.1.100")
+     *
+     * Default Ollama port is 11434
+     */
+    const val SERVER_IP = "10.0.2.2"   // Android emulator → host machine's localhost
+    const val SERVER_PORT = 11434      // Default Ollama port
 
-    val MCP_SERVER_URL: String
+    /**
+     * Derived URLs
+     */
+    val OLLAMA_SERVER_URL: String
         get() = "http://$SERVER_IP:$SERVER_PORT"
 }
 ```
@@ -53,7 +64,8 @@ object SecureData {
 1. **SecureData.kt** is listed in `.gitignore` and will NEVER be committed
 2. **SecureData.kt.example** is a template and safe to commit
 3. **ServerConfig.kt** references SecureData and is safe to commit
-4. **network_security_config.xml** - Contains server IP for Android's network security policy (acceptable hardcoding)
+4. **network_security_config.xml** - Allows cleartext HTTP for localhost development (required for Android 9+)
+5. **No authentication needed** - Ollama has no built-in authentication (use VPN/firewall for remote access)
 
 ## ⚠️ Important Warnings
 
@@ -79,11 +91,11 @@ git status | grep SecureData.kt.example
 
 ## 📦 Where Secure Data is Used
 
-The app uses `ServerConfig.MCP_SERVER_URL` throughout the codebase:
+The app uses `ServerConfig.OLLAMA_SERVER_URL` throughout the codebase:
 
-- **McpClient.kt** - HTTP client initialization
-- **ChatViewModel.kt** - Server communication
-- All MCP tool calls
+- **OllamaClient.kt** - HTTP client initialization for Ollama REST API
+- **ChatViewModel.kt** - AI chat communication
+- **AppModule.kt** - Dependency injection configuration
 
 ## 🛠️ Updating Server Configuration
 

@@ -1,10 +1,7 @@
 package com.example.aiwithlove.ui
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -46,11 +43,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.aiwithlove.data.model.Message
@@ -95,7 +90,7 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
             TopAppBar(
                 title = {
                     Text(
-                        text = "Webpage Creator",
+                        text = "AI Chat (llama2)",
                         fontWeight = FontWeight.Bold,
                     )
                 },
@@ -147,7 +142,7 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
                             .onFocusChanged { focusState ->
                                 isKeyboardVisible = focusState.isFocused
                             },
-                        placeholder = { Text("Введите текст для веб-страницы...") },
+                        placeholder = { Text("Задайте вопрос AI...") },
                         shape = RoundedCornerShape(24.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -227,8 +222,6 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
 
 @Composable
 fun MessageBubble(message: Message) {
-    val context = LocalContext.current
-
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (message.isFromUser) Arrangement.End else Arrangement.Start
@@ -263,28 +256,6 @@ fun MessageBubble(message: Message) {
                 fontSize = 16.sp,
                 lineHeight = 21.sp
             )
-
-            message.webpageUrl?.let { url ->
-                Spacer(modifier = Modifier.size(12.dp))
-                Text(
-                    text = "Открыть страницу →",
-                    color = if (message.isFromUser) {
-                        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    },
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    textDecoration = TextDecoration.Underline,
-                    modifier = Modifier.clickable {
-                        try {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                            context.startActivity(intent)
-                        } catch (e: Exception) {
-                        }
-                    }
-                )
-            }
         }
     }
 }

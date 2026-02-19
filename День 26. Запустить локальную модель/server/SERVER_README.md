@@ -1,5 +1,17 @@
 # MCP Server - Webpage Creator
 
+> ⚠️ **LEGACY FILE - NOT USED IN CURRENT PROJECT**
+>
+> This file is from **День 25 - Webpage Creator** project.
+> The current **День 26 - Ollama Chat** project does NOT use this MCP server.
+>
+> For current project setup, see:
+> - **LOCALHOST_SETUP.md** - Ollama localhost development
+> - **DEPLOYMENT_GUIDE.md** - Ollama deployment instructions
+> - **CLAUDE.md** - Project architecture and setup
+
+---
+
 Python HTTP server implementing the Model Context Protocol (MCP) with webpage creation tool.
 
 ## Overview

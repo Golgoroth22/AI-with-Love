@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!-- Allow cleartext HTTP for localhost development (Ollama) -->
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">148.253.209.151</domain>
+        <!-- Android emulator special IP for host machine -->
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <!-- Localhost variations -->
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <!-- Local network IPs for physical device testing -->
+        <domain includeSubdomains="true">192.168.0.0</domain>
+        <domain includeSubdomains="true">192.168.1.0</domain>
     </domain-config>
 </network-security-config>

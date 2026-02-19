@@ -1,458 +1,406 @@
-# Deployment and Testing Guide
+# Ollama Deployment and Testing Guide
 
 ## Prerequisites
 
-- SSH access to server: root@148.253.209.151
-- nginx installed on server
-- Docker and docker-compose installed on server
+- Linux/Mac/Windows machine for Ollama server
 - Android Studio installed locally
+- Android device or emulator
+- Network connectivity between Android app and Ollama server
 
-## Part 1: Server Infrastructure Setup
+## Part 1: Ollama Server Setup
 
-### Step 1: Set up webpages directory
+### Step 1: Install Ollama
+
+#### Linux/Mac
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+#### Windows
+Download installer from https://ollama.com/download
+
+### Step 2: Pull llama2 model
 
 ```bash
-# SSH to server
-ssh root@148.253.209.151
-
-# Create webpages directory
-mkdir -p /var/www/html/webpages
-chmod 755 /var/www/html/webpages
-
-# Verify directory was created
-ls -la /var/www/html/ | grep webpages
-# Expected output: drwxr-xr-x ... webpages
+ollama pull llama2
 ```
 
-### Step 2: Configure nginx
+This will download the llama2 model (~4GB). Wait for it to complete.
+
+### Step 3: Verify Ollama is running
 
 ```bash
-# Check if nginx is installed and running
-systemctl status nginx
+# Check version
+curl http://localhost:11434/api/version
 
-# Edit nginx configuration
-nano /etc/nginx/sites-available/default
+# Expected output:
+# {"version":"0.x.x"}
 ```
 
-Add this location block inside the `server { }` block (after existing location blocks):
+### Step 4: Configure Ollama for network access (Optional)
 
-```nginx
-location /webpages/ {
-    alias /var/www/html/webpages/;
-    autoindex off;
+If you want to access Ollama from a remote device (not localhost):
 
-    # Enable CORS if needed for cross-origin access
-    add_header 'Access-Control-Allow-Origin' '*';
-    add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS';
-}
+#### Linux (systemd)
+```bash
+# Edit service file
+sudo systemctl edit ollama.service
+
+# Add these lines in the editor:
+[Service]
+Environment="OLLAMA_HOST=0.0.0.0:11434"
+
+# Save and exit, then restart
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
 ```
 
-Save and exit (Ctrl+X, Y, Enter).
+#### Mac
+```bash
+# Set environment variable in ~/.zshrc or ~/.bashrc
+export OLLAMA_HOST=0.0.0.0:11434
+
+# Restart Ollama
+pkill ollama
+ollama serve
+```
+
+#### Windows
+```powershell
+# Set environment variable
+$env:OLLAMA_HOST="0.0.0.0:11434"
+
+# Restart Ollama service
+Restart-Service Ollama
+```
+
+### Step 5: Test Ollama Chat API
 
 ```bash
-# Test nginx configuration
-sudo nginx -t
-# Expected: nginx: configuration file /etc/nginx/nginx.conf test is successful
-
-# Reload nginx
-sudo systemctl reload nginx
-
-# Verify nginx is serving the directory
-curl -I http://localhost/webpages/
-# Expected: HTTP/1.1 200 OK (or 404 if empty, which is fine)
-
-# Exit SSH
-exit
-```
-
-### Step 3: Deploy updated MCP server
-
-```bash
-# On your local machine, navigate to server directory
-cd "/Users/falin/AndroidStudioProjects/AI-with-Love/День 24. Ассистент команды/server"
-
-# Deploy using the quick deploy script
-./deploy_quick.sh
-```
-
-If the script fails due to SSH key issues, deploy manually:
-
-```bash
-# Copy updated server file
-scp http_mcp_server.py root@148.253.209.151:/opt/mcp-server/
-
-# SSH to server and restart
-ssh root@148.253.209.151 "cd /opt/mcp-server && docker compose restart"
-```
-
-### Step 4: Verify MCP server deployment
-
-```bash
-# Test tools/list to see if create_webpage is available
-curl -X POST http://148.253.209.151:8080 \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools[] | select(.name=="create_webpage")'
-```
-
-Expected output:
-```json
-{
-  "name": "create_webpage",
-  "description": "Create a simple HTML webpage with provided text content and deploy it to the web server",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "text": {
-        "type": "string",
-        "description": "The text content to display on the webpage"
-      },
-      "title": {
-        "type": "string",
-        "description": "Optional page title (defaults to first 50 chars of text)"
-      }
-    },
-    "required": ["text"]
-  }
-}
-```
-
-## Part 2: Test MCP Server Tool
-
-### Test 1: Basic webpage creation
-
-```bash
-curl -X POST http://148.253.209.151:8080 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "tools/call",
-    "params": {
-      "name": "create_webpage",
-      "arguments": {
-        "text": "Hello World! This is my first webpage created via MCP."
-      }
-    }
-  }' | jq '.'
+curl http://localhost:11434/api/chat -d '{
+  "model": "llama2",
+  "messages": [
+    {"role": "user", "content": "Hello!"}
+  ],
+  "stream": false
+}'
 ```
 
 Expected response:
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "content": [
-      {
-        "type": "text",
-        "text": "{\n  \"success\": true,\n  \"url\": \"http://148.253.209.151/webpages/page_20260217_123456_abc12345.html\",\n  \"filename\": \"page_20260217_123456_abc12345.html\",\n  \"filepath\": \"/var/www/html/webpages/page_20260217_123456_abc12345.html\",\n  \"timestamp\": \"2026-02-17T12:34:56.789\"\n}"
-      }
-    ]
-  }
+  "model": "llama2",
+  "created_at": "2024-XX-XXTXX:XX:XX.XXXXXXZ",
+  "message": {
+    "role": "assistant",
+    "content": "Hello! How can I help you today?"
+  },
+  "done": true
 }
 ```
 
-### Test 2: Verify webpage is accessible
+## Part 2: Android App Configuration
 
-```bash
-# Extract URL from previous response and test
-curl -I http://148.253.209.151/webpages/page_20260217_123456_abc12345.html
-# Expected: HTTP/1.1 200 OK
+### Step 1: Update SecureData.kt
 
-# View the webpage content
-curl http://148.253.209.151/webpages/page_20260217_123456_abc12345.html | head -20
+Edit `app/src/main/java/com/example/aiwithlove/util/SecureData.kt`:
+
+```kotlin
+object SecureData {
+    // For local testing on emulator
+    const val SERVER_IP = "10.0.2.2"  // Android emulator to host machine
+    const val SERVER_PORT = 11434
+
+    // For physical device on same network
+    // const val SERVER_IP = "192.168.1.100"  // Your machine's IP
+
+    // For remote server
+    // const val SERVER_IP = "your-server-ip"
+
+    val OLLAMA_SERVER_URL: String
+        get() = "http://$SERVER_IP:$SERVER_PORT"
+}
 ```
 
-### Test 3: Test with special characters (XSS prevention)
+**Note**:
+- `10.0.2.2` - Use this for Android emulator to access host machine
+- `192.168.x.x` - Use your local network IP for physical devices
+- Public IP - Use for remote servers (ensure firewall allows port 11434)
 
-```bash
-curl -X POST http://148.253.209.151:8080 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 2,
-    "method": "tools/call",
-    "params": {
-      "name": "create_webpage",
-      "arguments": {
-        "text": "<script>alert(\"XSS\")</script>This should be escaped!"
-      }
-    }
-  }' | jq '.result.content[0].text | fromjson'
+### Step 2: Verify Network Security Config
+
+**IMPORTANT**: Android 9+ blocks cleartext HTTP by default. Ensure `app/src/main/res/xml/network_security_config.xml` exists and allows HTTP to localhost:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <!-- Add your server IP if using physical device -->
+    </domain-config>
+</network-security-config>
 ```
 
-Verify that the returned URL shows the script tags as text (escaped), not executed.
-
-### Test 4: Test with long text
-
-```bash
-curl -X POST http://148.253.209.151:8080 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 3,
-    "method": "tools/call",
-    "params": {
-      "name": "create_webpage",
-      "arguments": {
-        "text": "'"$(python3 -c "print('A' * 5000)")"'"
-      }
-    }
-  }' | jq '.result.content[0].text | fromjson'
+And verify it's referenced in `AndroidManifest.xml`:
+```xml
+<application
+    android:networkSecurityConfig="@xml/network_security_config"
+    ...>
 ```
 
-### Test 5: Test with emoji and Unicode
+### Step 3: Sync Gradle
 
-```bash
-curl -X POST http://148.253.209.151:8080 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 4,
-    "method": "tools/call",
-    "params": {
-      "name": "create_webpage",
-      "arguments": {
-        "text": "🚀 Привет, мир! 🎉 Hello World! 💻",
-        "title": "Unicode Test Page"
-      }
-    }
-  }' | jq '.result.content[0].text | fromjson'
-```
-
-## Part 3: Android App Testing
-
-### Step 1: Open project in Android Studio
-
-```bash
-open -a "Android Studio" "/Users/falin/AndroidStudioProjects/AI-with-Love/День 25. Реальная задача"
-```
-
-Or manually:
 1. Open Android Studio
-2. File → Open
-3. Navigate to `/Users/falin/AndroidStudioProjects/AI-with-Love/День 25. Реальная задача`
-4. Click "Open"
+2. File → Sync Project with Gradle Files
+3. Wait for sync to complete
 
-### Step 2: Sync Gradle
+### Step 4: Build the app
 
-1. Click "Sync Now" when prompted
-2. Or: File → Sync Project with Gradle Files
-3. Wait for dependencies to download (may take 2-5 minutes)
+```bash
+./gradlew assembleDebug
+```
 
-Expected: Build should succeed with no errors.
+Or in Android Studio: Build → Make Project
 
-### Step 3: Fix any import errors
+## Part 3: Testing
 
-If you see red underlines in code:
-1. File → Invalidate Caches → Invalidate and Restart
-2. Build → Clean Project
-3. Build → Rebuild Project
+### Test 1: Basic Chat
 
-### Step 4: Run the app
-
-1. **On Emulator:**
-   - Tools → Device Manager
-   - Create a new device (Pixel 5, API 34 recommended)
-   - Click "Run" (green play button) or press Shift+F10
-   - Select the emulator
-
-2. **On Physical Device:**
-   - Enable Developer Mode on your Android device
-   - Enable USB Debugging
-   - Connect device via USB
-   - Click "Run" and select your device
-
-### Step 5: Test the app
-
-#### Test 1: Basic Flow
-1. App opens to chat screen
-2. You see welcome message: "Привет! Отправь мне любой текст..."
-3. Type: "Hello, this is my first webpage!"
+1. Launch the app
+2. You should see: "Привет! Я AI ассистент на основе llama2..."
+3. Type: "Hello"
 4. Click send button
-5. Wait for response (2-3 seconds)
-6. Verify you see:
-   - ✅ Веб-страница создана!
-   - 🔗 URL: http://148.253.209.151/webpages/page_...
-   - 📄 Файл: page_...
-7. Click "Открыть страницу →"
-8. Browser opens and displays the webpage with your text
+5. Wait for AI response (may take 10-30 seconds on first request)
+6. Verify you receive a response from llama2
 
-#### Test 2: Long Text
-1. Type a long message (500+ characters)
-2. Send and verify page is created
-3. Open URL and verify all text displays correctly
+### Test 2: Conversation Context
 
-#### Test 3: Special Characters
-1. Type: `<b>Bold text</b> & special chars: < > " '`
-2. Send and verify
-3. Open URL and verify characters are escaped (shown as text, not HTML)
+1. Ask: "What is 2+2?"
+2. Wait for response: "4"
+3. Ask: "What was my previous question?"
+4. Verify the AI remembers the context
 
-#### Test 4: Emoji
-1. Type: "🚀 Hello World 🎉 Testing emojis 💻"
-2. Send and verify
-3. Open URL and verify emojis display correctly
+### Test 3: Long Response
 
-#### Test 5: Multiple Pages
-1. Create 3 different webpages with different text
-2. Verify each has a unique URL
-3. Open each URL in browser
-4. Verify all pages are accessible and show correct content
+1. Ask: "Explain how a computer works in detail"
+2. Wait for lengthy response
+3. Verify entire response is displayed
 
-#### Test 6: Error Handling
-1. **Network Error:** Turn off WiFi, send message, verify error message shown
-2. **Empty Input:** Try sending empty message, verify nothing happens
-3. **Server Down:** Stop server, send message, verify error message
+### Test 4: Unicode/Emoji
 
-#### Test 7: Clear Chat
-1. Create a webpage
+1. Type: "Tell me about 🚀 rockets"
+2. Verify emojis display correctly in both directions
+
+### Test 5: Error Handling
+
+**Network error test:**
+1. Disconnect WiFi
+2. Send a message
+3. Verify error message appears: "❌ Ошибка: ... Проверьте подключение к Ollama серверу"
+
+**Wrong server test:**
+1. Change SERVER_IP to invalid address
+2. Rebuild app
+3. Send message
+4. Verify connection error
+
+### Test 6: Clear Chat
+
+1. Have a conversation (3-4 messages)
 2. Click "Новый чат" button
-3. Verify chat clears and welcome message reappears
-4. Previous webpage URLs should still be accessible in browser
+3. Verify chat history clears
+4. Verify welcome message reappears
+5. Start new conversation to verify context is reset
 
-## Part 4: Performance & Security Verification
+## Part 4: Performance Optimization
 
-### Performance Tests
+### Check Ollama Model Status
 
 ```bash
-# Test server response time
-time curl -X POST http://148.253.209.151:8080 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "tools/call",
-    "params": {
-      "name": "create_webpage",
-      "arguments": {"text": "Performance test"}
-    }
-  }' > /dev/null
+# List loaded models
+curl http://localhost:11434/api/tags
 
-# Should complete in < 2 seconds
+# Check model details
+ollama show llama2
 ```
 
-### Security Verification
+### Reduce Response Time
 
+**Option 1: Keep model loaded**
 ```bash
-# 1. Verify XSS is escaped
-curl http://148.253.209.151/webpages/page_XXXXX.html | grep -o "<script>" | wc -l
-# Expected: 0 (no unescaped script tags)
-
-# 2. Verify file permissions
-ssh root@148.253.209.151 "ls -la /var/www/html/webpages/ | tail -5"
-# Expected: -rw-r--r-- (644 permissions)
-
-# 3. Test file path traversal attack
-curl -X POST http://148.253.209.151:8080 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "tools/call",
-    "params": {
-      "name": "create_webpage",
-      "arguments": {"text": "../../etc/passwd"}
-    }
-  }' | jq '.result.content[0].text | fromjson'
-# Expected: Normal webpage created, no path traversal
+# Send a dummy request to preload model
+curl http://localhost:11434/api/chat -d '{
+  "model": "llama2",
+  "messages": [{"role": "user", "content": "hi"}],
+  "stream": false
+}'
 ```
 
-### Check disk usage
-
+**Option 2: Use a smaller model**
 ```bash
-ssh root@148.253.209.151 "du -sh /var/www/html/webpages/"
-# Monitor to ensure it doesn't grow too large
+# Pull smaller/faster model
+ollama pull llama2:7b-chat-q4_0
+
+# Update OllamaClient.kt modelName to "llama2:7b-chat-q4_0"
 ```
 
-## Part 5: Optional - Set Up Cleanup Cron Job
-
-```bash
-ssh root@148.253.209.151
-
-# Edit crontab
-crontab -e
-
-# Add this line to delete files older than 30 days at 3 AM daily
-0 3 * * * find /var/www/html/webpages -name "page_*.html" -mtime +30 -delete
-
-# Save and exit
-
-# Verify cron job
-crontab -l | grep webpages
+**Option 3: Adjust model parameters**
+Edit `OllamaClient.kt` to add parameters:
+```kotlin
+val request = OllamaChatRequest(
+    model = modelName,
+    messages = messages,
+    stream = false,
+    options = mapOf(
+        "num_predict" to 100,  // Limit response length
+        "temperature" to 0.7   // Control randomness
+    )
+)
 ```
 
 ## Troubleshooting
 
-### Issue: Server returns error "Failed to create webpage"
+### Issue: "Connection refused" error
 
 **Solution:**
 ```bash
-ssh root@148.253.209.151
-ls -la /var/www/html/webpages/
-# Check permissions - should be 755 for directory
+# Check if Ollama is running
+ps aux | grep ollama
 
-# Fix permissions if needed
-chmod 755 /var/www/html/webpages
+# Start Ollama if not running
+ollama serve
+
+# Check port is open
+lsof -i :11434  # Mac/Linux
+netstat -ano | findstr :11434  # Windows
 ```
 
-### Issue: Webpage URL returns 404
+### Issue: "Model not found"
 
 **Solution:**
 ```bash
-# Check nginx configuration
-sudo nginx -t
-sudo systemctl status nginx
+# List available models
+ollama list
 
-# Verify location block exists
-grep -A 3 "location /webpages/" /etc/nginx/sites-available/default
-
-# Reload nginx
-sudo systemctl reload nginx
+# Pull llama2 if missing
+ollama pull llama2
 ```
 
-### Issue: Android app shows "Unresolved reference" errors
+### Issue: App times out waiting for response
+
+**Possible causes:**
+1. Model is loading for the first time (wait up to 1 minute)
+2. Hardware is too slow (consider smaller model)
+3. Network timeout too short
 
 **Solution:**
-1. File → Invalidate Caches → Invalidate and Restart
-2. File → Sync Project with Gradle Files
-3. Build → Clean Project
-4. Build → Rebuild Project
+Increase timeout in `OllamaClient.kt`:
+```kotlin
+install(HttpTimeout) {
+    requestTimeoutMillis = 600000 // 10 minutes
+}
+```
 
-### Issue: App crashes on send
+### Issue: Can't connect from physical device
 
 **Solution:**
-1. Check Logcat in Android Studio (View → Tool Windows → Logcat)
-2. Filter for errors
-3. Common issues:
-   - Network permission missing → Check AndroidManifest.xml
-   - Server URL incorrect → Check ServerConfig.kt
-   - Koin not initialized → Check MainActivity.kt
+1. Find your machine's IP:
+   ```bash
+   # Mac/Linux
+   ifconfig | grep "inet "
+
+   # Windows
+   ipconfig
+   ```
+
+2. Update SecureData.kt with your IP
+
+3. Ensure firewall allows port 11434:
+   ```bash
+   # Mac
+   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /usr/local/bin/ollama
+
+   # Linux
+   sudo ufw allow 11434
+
+   # Windows - Add firewall rule in Windows Defender
+   ```
+
+### Issue: Android emulator can't reach localhost
+
+**Solution:**
+Use `10.0.2.2` instead of `localhost` in SecureData.kt:
+```kotlin
+const val SERVER_IP = "10.0.2.2"
+```
+
+### Issue: Slow responses
+
+**Check system resources:**
+```bash
+# Monitor CPU/RAM while Ollama runs
+top  # Mac/Linux
+# Or use Task Manager on Windows
+```
+
+llama2 requires:
+- **RAM**: ~8GB for 7B parameter model
+- **CPU**: Multi-core recommended
+- **GPU**: Optional but significantly faster with CUDA/ROCm
+
+### Issue: "Cleartext HTTP traffic not permitted"
+
+**Cause**: Android 9+ blocks HTTP by default
+
+**Solution**: Verify `network_security_config.xml` is configured (see Step 2 above)
+
+### Issue: Empty or malformed responses
+
+**Cause**: Ollama may return NDJSON format instead of JSON
+
+**Solution**: Already handled by `OllamaClient.parseOllamaResponse()` - if you see issues, check logs for parsing errors
 
 ## Success Criteria Checklist
 
-- [ ] Webpages directory created and accessible
-- [ ] nginx serves /webpages/ path
-- [ ] MCP server has create_webpage tool
-- [ ] MCP tool creates webpage successfully
-- [ ] Webpage is accessible via browser
-- [ ] XSS protection works (HTML escaped)
+- [ ] Ollama installed and running
+- [ ] llama2 model downloaded
+- [ ] API version endpoint responds
+- [ ] Test chat request succeeds
 - [ ] Android app builds without errors
-- [ ] App shows welcome message
-- [ ] User can send message
-- [ ] App receives webpage URL
-- [ ] URL is clickable
-- [ ] Browser opens webpage correctly
-- [ ] Multiple pages have unique URLs
+- [ ] App connects to Ollama
+- [ ] User can send messages
+- [ ] AI responses appear in chat
+- [ ] Conversation context maintained
+- [ ] Clear chat works
 - [ ] Error handling works (network errors)
-- [ ] Clear chat button works
 
 ## Next Steps
 
-1. Complete all tests above
-2. If everything works, consider:
-   - Adding Room database for message persistence
-   - Implementing webpage history view
-   - Adding QR code generation for sharing
-   - Implementing page editing functionality
-   - Adding analytics (view counter)
-   - Implementing custom themes/templates
+After successful deployment:
+
+1. **Explore other models**:
+   ```bash
+   ollama pull llama3
+   ollama pull mistral
+   ollama pull codellama
+   ```
+
+2. **Enable streaming** for real-time responses:
+   - Modify `OllamaClient.kt` to handle streaming
+   - Update UI to show incremental text
+
+3. **Add model selection** in app:
+   - Create settings screen
+   - Allow users to choose between models
+
+4. **Optimize for mobile**:
+   - Cache responses locally
+   - Implement request queuing
+   - Add retry logic
+
+5. **Privacy enhancements**:
+   - All data stays local
+   - Add option to disable conversation history
+   - Implement auto-clear after X minutes

@@ -3,21 +3,21 @@ package com.example.aiwithlove.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.aiwithlove.data.model.Message
-import com.example.aiwithlove.mcp.McpClient
+import com.example.aiwithlove.ollama.OllamaClient
+import com.example.aiwithlove.ollama.OllamaMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.*
 
 class ChatViewModel(
-    private val mcpClient: McpClient
+    private val ollamaClient: OllamaClient
 ) : ViewModel() {
 
     private val _messages = MutableStateFlow<List<Message>>(
         listOf(
             Message(
-                text = "Привет! Отправь мне любой текст, и я создам веб-страницу с этим текстом.",
+                text = "Привет! Я AI ассистент на основе llama2. Задай мне любой вопрос!",
                 isFromUser = false
             )
         )
@@ -27,69 +27,47 @@ class ChatViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
+    // Store conversation history for Ollama context
+    private val conversationHistory = mutableListOf<OllamaMessage>()
 
     fun sendMessage(userText: String) {
         if (userText.isBlank() || _isLoading.value) return
 
+        // Add user message to UI
         val userMsg = Message(text = userText, isFromUser = true)
         _messages.value = _messages.value + userMsg
+
+        // Add user message to conversation history
+        conversationHistory.add(OllamaMessage(role = "user", content = userText))
+
         _isLoading.value = true
 
-        val thinkingMsg = Message(text = "Создаю веб-страницу...", isFromUser = false)
+        // Add thinking indicator
+        val thinkingMsg = Message(text = "Думаю...", isFromUser = false)
         _messages.value = _messages.value + thinkingMsg
         val thinkingIndex = _messages.value.size - 1
 
         viewModelScope.launch {
             try {
-                val result = mcpClient.callTool(
-                    toolName = "create_webpage",
-                    arguments = mapOf("text" to userText)
+                // Call Ollama API with full conversation history
+                val aiResponse = ollamaClient.chat(conversationHistory)
+
+                // Add AI response to conversation history
+                conversationHistory.add(OllamaMessage(role = "assistant", content = aiResponse))
+
+                // Update UI with AI response
+                val responseMsg = Message(
+                    text = aiResponse,
+                    isFromUser = false
                 )
 
-                val mcpResult = json.parseToJsonElement(result) as JsonObject
-                val content = mcpResult["content"] as? JsonArray
-                val textContent = content?.firstOrNull()?.jsonObject?.get("text")?.jsonPrimitive?.content
-
-                if (textContent != null) {
-                    val toolResult = json.parseToJsonElement(textContent) as JsonObject
-                    val success = toolResult["success"]?.jsonPrimitive?.boolean ?: false
-
-                    if (success) {
-                        val url = toolResult["url"]?.jsonPrimitive?.content ?: "Unknown URL"
-                        val filename = toolResult["filename"]?.jsonPrimitive?.content ?: ""
-
-                        val successMsg = Message(
-                            text = "✅ Веб-страница создана!\n\n🔗 URL: $url\n\n📄 Файл: $filename",
-                            isFromUser = false,
-                            webpageUrl = url
-                        )
-
-                        val currentMessages = _messages.value.toMutableList()
-                        currentMessages[thinkingIndex] = successMsg
-                        _messages.value = currentMessages
-                    } else {
-                        val error = toolResult["error"]?.jsonPrimitive?.content ?: "Unknown error"
-
-                        val errorMsg = Message(
-                            text = "❌ Ошибка при создании страницы:\n$error",
-                            isFromUser = false
-                        )
-
-                        val currentMessages = _messages.value.toMutableList()
-                        currentMessages[thinkingIndex] = errorMsg
-                        _messages.value = currentMessages
-                    }
-                } else {
-                    throw Exception("Invalid response format")
-                }
+                val currentMessages = _messages.value.toMutableList()
+                currentMessages[thinkingIndex] = responseMsg
+                _messages.value = currentMessages
 
             } catch (e: Exception) {
                 val errorMsg = Message(
-                    text = "❌ Ошибка: ${e.message}",
+                    text = "❌ Ошибка: ${e.message}\n\nПроверьте подключение к Ollama серверу.",
                     isFromUser = false
                 )
 
@@ -105,9 +83,13 @@ class ChatViewModel(
     }
 
     fun clearChat() {
+        // Clear conversation history
+        conversationHistory.clear()
+
+        // Reset UI messages
         _messages.value = listOf(
             Message(
-                text = "Привет! Отправь мне любой текст, и я создам веб-страницу с этим текстом.",
+                text = "Привет! Я AI ассистент на основе llama2. Задай мне любой вопрос!",
                 isFromUser = false
             )
         )

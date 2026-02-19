@@ -8,10 +8,10 @@ package com.example.aiwithlove.util
  */
 object ServerConfig {
     /**
-     * MCP Server URL - constructed from SecureData
+     * Ollama Server URL - constructed from SecureData
      */
-    val MCP_SERVER_URL: String
-        get() = SecureData.MCP_SERVER_URL
+    val OLLAMA_SERVER_URL: String
+        get() = SecureData.OLLAMA_SERVER_URL
 
     /**
      * Server configuration details (for debugging/logging)
