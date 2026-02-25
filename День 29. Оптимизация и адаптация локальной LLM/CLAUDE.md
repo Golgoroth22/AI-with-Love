@@ -4,363 +4,237 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Chat App - Android application with on-device LLM inference using llama.cpp + GGUF models. Users download GGUF models (Llama 3.2, Gemma 2, etc.) and chat completely offline.
+Japan Travel Guide Chat App — An Android application featuring "Yuki", an AI travel guide for Japan. Users type in Russian; the app translates to English before sending to the LLM and translates the English response back to Russian before display. Translation happens on-device via Google ML Kit (no internet required for translation).
 
-**Key features:**
-- On-device inference (no server required)
-- GGUF model download with progress tracking
-- 5 pre-configured models in catalog
-- 100% offline operation
-- Modern Material Design 3 UI
+**Key features**:
+- Yuki persona: enthusiastic Japan travel guide
+- On-device Ru↔En translation via Google ML Kit
+- Local AI model (llama3.2:3b via Ollama) — no cloud LLM needed
+- Full chat history maintained in English for the model
 
 ## Build and Run Commands
 
-### Build the app
 ```bash
 ./gradlew assembleDebug
-# Output: app/build/outputs/apk/debug/app-debug.apk
-```
-
-### Install to device
-```bash
 ./gradlew installDebug
-# Or manually:
-adb install app/build/outputs/apk/debug/app-debug.apk
-```
-
-### Clean build
-```bash
 ./gradlew clean build
-```
-
-### Run tests
-```bash
-# Unit tests
 ./gradlew test
-
-# Instrumented tests (requires emulator/device)
 ./gradlew connectedAndroidTest
 ```
 
-## Architecture: MVVM + llama.cpp
+## Architecture: MVVM + Ollama + ML Kit Translation
+
+```
+User types Russian
+    ↓
+TranslationService.toEnglish()   [ML Kit, on-device]
+    ↓
+OllamaClient.chat() with English messages
+    ↓
+llama3.2:3b responds in English
+    ↓
+TranslationService.toRussian()   [ML Kit, on-device]
+    ↓
+Russian response shown in chat UI
+```
+
+**Conversation history** is stored in English (what the model sees).
+**UI messages** show: original Russian user input + translated Russian AI responses.
 
 ```
 UI Layer (Compose)
-  └─ ChatScreen.kt - Chat UI with messages
-  └─ GGUFModelScreen.kt - Model selection and download UI
+  └─ ChatScreen.kt
 
 ViewModel Layer
   └─ ChatViewModel.kt
-       ├─ StateFlow<List<Message>> - message list
+       ├─ StateFlow<List<Message>>
        ├─ StateFlow<Boolean> - loading state
-       └─ sendMessage() - calls LLMClient
-  └─ GGUFModelViewModel.kt
-       ├─ StateFlow<GGUFModel> - selected model
-       ├─ StateFlow<DownloadProgress> - download state
-       ├─ StateFlow<Boolean> - model ready
-       └─ startDownload() - initiates download
+       ├─ conversationHistory: List<OllamaMessage> (English)
+       └─ sendMessage() — translate → LLM → translate back
 
-Data Layer
-  └─ GGUFModelRepository.kt
-       ├─ downloadModel() - HTTP download from HuggingFace
-       ├─ getDownloadedModels() - file system check
-       └─ deleteModel() - cleanup
-  └─ LlamaCppClient.kt
-       └─ Llamatik library wrapper for GGUF inference
+Translation Layer
+  └─ TranslationService.kt
+       ├─ toEnglish() — ML Kit Ru→En
+       └─ toRussian() — ML Kit En→Ru
 
-Utilities
-  └─ ModelCatalog.kt - 5 pre-configured GGUF models
+Network Layer
+  └─ OllamaClient.kt
+       └─ Ktor HTTP client for Ollama /api/chat
 
 DI Layer (Koin)
   └─ AppModule.kt
-       ├─ HttpClient (for downloads)
-       ├─ GGUFModelRepository
-       ├─ LLMClient → LlamaCppClient
-       ├─ ChatViewModel
-       └─ GGUFModelViewModel
+       ├─ OllamaClient (singleton)
+       ├─ TranslationService (singleton)
+       └─ ChatViewModel (viewModel)
 ```
 
-**Initialization**: `MainActivity.onCreate()` calls `startKoin()` before setting content.
+**Initialization**: `MainActivity.onCreate()` calls `startKoin()` before `setContent`.
 
-## Model Management
+## Ollama Communication Pattern
 
-### GGUF Model Catalog
+### Request Flow
+1. User types Russian → `ChatViewModel.sendMessage()`
+2. `TranslationService.toEnglish()` translates user text
+3. ViewModel calls `OllamaClient.chat(conversationHistory)` with English-only history
+4. OllamaClient sends HTTP POST to `/api/chat`:
+   ```json
+   {
+     "model": "llama3.2:3b",
+     "messages": [...],
+     "system": "You are Yuki...",
+     "stream": false,
+     "keep_alive": "5m",
+     "options": {"temperature": 0.7, "num_predict": 512, "num_ctx": 4096, "top_p": 0.9, "repeat_penalty": 1.1}
+   }
+   ```
+5. `TranslationService.toRussian()` translates response
+6. UI updated with Russian response
 
-**File:** `util/ModelCatalog.kt`
+### Response Parsing
 
-Defines 5 pre-configured GGUF models:
-1. Llama 3.2 1B Q4_K_M (869MB) - DEFAULT
-2. Gemma 2 2B Q4_K_M (1.7GB)
-3. Qwen 2.5 1.5B Q4_K_M (1.1GB)
-4. Phi-3 Mini Q4_K_M (2.4GB)
-5. TinyLlama 1.1B Q4_K_M (669MB)
+Ollama can return **NDJSON** even when `stream: false`. `OllamaClient.parseOllamaResponse()` handles both:
 
-### Download Flow
+- **Standard JSON**: decoded directly
+- **NDJSON**: splits on `\n`, concatenates all `message.content` chunks, trims result
 
-1. User selects model from catalog → `GGUFModelViewModel.selectModel()`
-2. User taps download → `startDownload()`
-3. GGUFModelRepository downloads from HuggingFace
-4. Progress updates via `Flow<DownloadProgress>`
-5. File saved to `context.filesDir/models/`
-6. On completion → `isModelReady = true`
-7. App auto-navigates to ChatScreen
+### ML Kit Translation
 
-### Model Storage
+`TranslationService.translatePreservingStructure()` splits text on `\n`, translates each non-blank line individually, then rejoins. This prevents ML Kit from collapsing multi-line responses (bullet lists, numbered lists) into a single line.
 
-**Location:** `{app_data}/files/models/`
-- Example: `/data/data/com.example.aiwithlove/files/models/llama-3.2-1b-q4.gguf`
-
-**Auto-detection:** On app restart, GGUFModelViewModel scans for any .gguf files and sets as selected model.
-
-## llama.cpp Integration
-
-**Library:** Llamatik (llama.cpp Kotlin wrapper)
-
-**Implementation:** `llm/LlamaCppClient.kt`
-
-**Key features:**
-- Lazy model initialization (load on first chat)
-- ChatML prompt formatting
-- Streaming token generation
-- Response cleaning (remove special tokens)
-- Proper resource cleanup
-
-**Inference flow:**
-1. ChatViewModel.sendMessage() → llmClient.chat(messages)
-2. LlamaCppClient formats prompt (ChatML format)
-3. LlamaBridge.predict() → generates response
-4. Tokens streamed via SharedFlow
-5. Response cleaned and returned to ViewModel
-6. UI updates with new message
+On first use, ML Kit downloads translation models (~10 MB each). Subsequent calls are instant and work offline.
 
 ## Key Files and Their Responsibilities
 
-**ChatViewModel.kt** (98 lines)
-- Manages conversation state
-- Calls LLMClient for inference
-- Error handling for model failures
-- Maintains conversation history
+**`viewmodel/ChatViewModel.kt`**:
+- Manages chat state (`_messages`, `_isLoading`)
+- Translates Ru→En before LLM, En→Ru after LLM
+- Maintains `conversationHistory` in English
+- Greeting shown in Russian (UI), seeded in English (history)
 
-**LlamaCppClient.kt** (167 lines)
-- Implements LLMClient interface
-- Wraps Llamatik library
-- Lazy model initialization
-- ChatML prompt formatting
-- Resource cleanup on close()
+**`ollama/OllamaClient.kt`**:
+- Ktor HTTP client, 5-minute timeouts
+- Parses both JSON and NDJSON Ollama responses
+- `OllamaClientException` with user-friendly messages
 
-**GGUFModelViewModel.kt** (126 lines)
-- Model selection logic
-- Download orchestration
-- Persistent model detection (checks on app restart)
-- Auto-navigation when ready
+**`ollama/OllamaModels.kt`**:
+- `OllamaMessage`, `OllamaOptions`, `OllamaChatRequest`, `OllamaChatResponse`, `OllamaError`
+- `OllamaChatResponse` only contains `message: OllamaMessage`
 
-**GGUFModelRepository.kt** (196 lines)
-- HTTP download from HuggingFace
-- Progress tracking (8KB chunks, emit every 100KB)
-- File system storage
-- Model deletion
+**`util/TranslationService.kt`**:
+- ML Kit Ru↔En wrapper
+- `toEnglish()` / `toRussian()` — download model if needed, then translate line-by-line
 
-**ModelCatalog.kt** (119 lines)
-- Defines 5 GGUF models
-- Metadata: name, size, URL, quantization
-- Helper methods: getModelById, formatSize
+**`ui/ChatScreen.kt`**:
+- LazyColumn for messages, auto-scroll on new message and content change
+- FAB send button with loading indicator
+- "Новый чат" button (hidden when keyboard is visible)
 
-**GGUFModelScreen.kt** (UI)
-- Model selection cards
-- Download progress bar
-- Auto-navigation to chat when ready
+**`di/AppModule.kt`**:
+- Provides `OllamaClient` with Yuki system prompt and `OllamaOptions`
+- Provides `TranslationService` singleton
+- Provides `ChatViewModel`
 
-**ChatScreen.kt** (UI)
-- Message list with auto-scroll
-- Input field with send button
-- "Новый чат" button clears history
-- Loading indicator during inference
+**`data/model/Message.kt`**:
+- `text: String`, `isFromUser: Boolean`
 
-**AppModule.kt** (DI configuration)
-- HttpClient for downloads
-- GGUFModelRepository (singleton)
-- LLMClient → LlamaCppClient (auto-detects first .gguf file)
-- ChatViewModel
-- GGUFModelViewModel
+**`util/ServerConfig.kt`**:
+- Exposes `OLLAMA_SERVER_URL` from `SecureData.kt` (gitignored)
 
-## Testing Strategy
+**`util/ILoggable.kt`**:
+- `logD()` / `logE()` interface backed by `android.util.Log`
 
-### Model Download Test
-1. Launch app (first time)
-2. Should show GGUFModelScreen
-3. Select Llama 3.2 1B
-4. Tap "Скачать модель"
-5. Progress bar should update
-6. Download completes → auto-navigate to chat
+## Ollama Server Setup
 
-### Chat Inference Test
-1. With model downloaded
-2. Type "Hello, how are you?"
-3. Tap send
-4. Should see "Думаю..." indicator
-5. AI response appears within 5-15 seconds
-6. Response quality should be coherent
-
-### Persistent Model Test
-1. Download model
-2. Close app
-3. Relaunch app
-4. Should auto-navigate to chat (skip download screen)
-5. Model should load and respond
-
-### Multi-turn Conversation
-1. Send message "My name is Alex"
-2. Send message "What's my name?"
-3. AI should reference "Alex" (context maintained)
-
-### Error Handling
-1. Delete model file manually
-2. Try to send message
-3. Should show error message
-4. Navigate back to download screen
-
-## Common Development Tasks
-
-### Add a new GGUF model
-
-Edit `util/ModelCatalog.kt`:
-
-```kotlin
-GGUFModel(
-    id = "new-model-id",
-    name = "Display Name",
-    description = "Описание на русском",
-    sizeBytes = 1_000_000_000L,
-    downloadUrl = "https://huggingface.co/user/repo/resolve/main/model.gguf",
-    sha256 = "",
-    quantization = "Q4_K_M",
-    parameters = "1B",
-    filename = "model-filename.gguf"
-)
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull llama3.2:3b
+ollama serve
+curl http://localhost:11434/api/version
 ```
 
-### Change default model
-
-Edit `util/ModelCatalog.kt`:
-
-```kotlin
-val DEFAULT_MODEL = RECOMMENDED_MODELS[index]  // Change index
+For remote access:
+```bash
+sudo systemctl edit ollama.service
+# Add: Environment="OLLAMA_HOST=0.0.0.0:11434"
+sudo systemctl daemon-reload && sudo systemctl restart ollama
 ```
 
-### Adjust context size
-
-Edit `di/AppModule.kt`:
-
-```kotlin
-LlamaCppClient(
-    context = androidContext(),
-    modelPath = modelPath,
-    contextSize = 4096  // Increase for longer conversations
-)
-```
-
-**Note:** Higher context = more memory usage. Default 2048 is balanced for mobile.
-
-### Update welcome message
-
-Edit `viewmodel/ChatViewModel.kt`:
-
-```kotlin
-Message(
-    text = "Your new welcome message here!",
-    isFromUser = false
-)
-```
-
-## Troubleshooting
-
-### Error: Model not found
-**Symptom:** "❌ Ошибка: Model file not found"
-**Fix:** Check that model downloaded successfully. Navigate to GGUFModelScreen and re-download.
-
-### Error: Out of memory
-**Symptom:** App crashes during inference
-**Fix:** Use smaller model (TinyLlama) or reduce context size to 1024.
-
-### Error: Download fails
-**Symptom:** "Client request invalid: 404 Not Found"
-**Fix:** Verify HuggingFace URL in ModelCatalog.kt. Model may have been moved/renamed.
-
-### App always shows download screen
-**Symptom:** Model downloaded but app doesn't detect it
-**Fix:** Check GGUFModelViewModel.checkForDownloadedModels() - should scan for any .gguf file.
-
-### Slow inference
-**Expected:** First inference after load: 5-15 seconds. Subsequent: 2-5 seconds.
-**If slower:** Device may have insufficient RAM. Try smaller model.
+**Default port**: 11434 — configured in `util/SecureData.kt` (gitignored).
 
 ## Dependency Management
 
-This project uses Gradle version catalogs (`gradle/libs.versions.toml`).
+Version catalog: `gradle/libs.versions.toml`
 
-**Major dependencies:**
-- `llamatik` (0.15.0) - llama.cpp wrapper for GGUF inference
-- `ktor-client-*` (3.0.0) - HTTP client for model downloads
-- `koin-*` (3.5.6) - Dependency injection
-- `kotlinx-serialization-json` (1.7.3) - JSON parsing
-- `androidx-compose-*` (BOM 2024.09.00) - UI framework
+**Active dependencies**:
+- `ktor-client-*` (3.0.0) — HTTP client
+- `koin-*` (3.5.6) — DI
+- `kotlinx-serialization-json` (1.7.3) — JSON
+- `androidx-compose-*` (BOM 2024.09.00) — UI
+- `mlkit-translate` (17.0.3) — on-device translation
+- `kotlinx-coroutines-play-services` (1.9.0) — ML Kit coroutine bridge
 
-**Removed dependencies** (no longer needed):
-- Room (database) - Uses file system instead
-- WorkManager - Direct Ktor downloads
-- MediaPipe - Replaced by Llamatik
+## Common Development Tasks
 
-## Performance Considerations
+### Update server URL
+Edit `util/SecureData.kt` (gitignored):
+```kotlin
+object SecureData {
+    const val SERVER_IP = "10.0.2.2"   // emulator → host localhost
+    const val SERVER_PORT = 11434
+    val OLLAMA_SERVER_URL = "http://$SERVER_IP:$SERVER_PORT"
+}
+```
 
-**Model Load Time:**
-- Cold start (first load): 5-10 seconds
-- Depends on device CPU and model size
+### Switch model
+Edit `di/AppModule.kt`, change `modelName = "llama3.2:3b"` to desired model. Pull on server first:
+```bash
+ollama pull <model-name>
+```
 
-**Inference Time:**
-- First message: 5-15 seconds
-- Subsequent messages: 2-5 seconds
-- Token generation: 15-25 tokens/sec (device-dependent)
+### Tune model parameters
+Edit `OllamaOptions` in `di/AppModule.kt`:
+- `temperature` (0.0–1.0): creativity
+- `num_predict`: max output tokens
+- `num_ctx`: context window size
+- `top_p`: nucleus sampling
+- `repeat_penalty`: penalise repetition
 
-**Memory Usage:**
-- App baseline: ~85MB
-- With model loaded: 1.5-3GB (depends on model)
-- Recommendation: Device with 4GB+ RAM
-
-**Storage:**
-- App APK: ~50MB
-- Model files: 669MB - 2.4GB
-- Recommendation: 3GB+ free storage
+### Change Yuki's persona / system prompt
+Edit `systemPrompt` string in `di/AppModule.kt`.
 
 ## Security Considerations
 
-**Network Security:**
-- App downloads models over HTTPS
-- No cleartext HTTP (unlike old Ollama setup)
+- **Cleartext HTTP**: configured via `res/xml/network_security_config.xml`
+- **SecureData.kt**: gitignored — contains server IP/port
+- **No auth**: Ollama has no built-in auth — use VPN/firewall for remote access
+- **On-device translation**: ML Kit processes text locally, nothing sent to Google
 
-**Data Privacy:**
-- 100% offline operation after model download
-- No data sent to external servers
-- All inference happens on-device
+## Performance Considerations
 
-**Model Integrity:**
-- SHA256 checksum verification currently disabled
-- Models downloaded from trusted HuggingFace repos (bartowski, TheBloke)
+- **keep_alive "5m"**: keeps model in RAM — first request ~20s, subsequent ~2-5s
+- **ML Kit models**: downloaded once (~10 MB each), then offline forever
+- **num_predict 512**: limits response length for faster replies
+- **num_ctx 4096**: context window — longer chats increase latency
 
-## Documentation Index
+## Troubleshooting
 
-This project has comprehensive documentation across multiple files:
+### "Cleartext HTTP traffic not permitted"
+Configure `network_security_config.xml` — already done for 10.0.2.2.
 
-- **README.md**: User-facing quick start guide
-- **CLAUDE.md** (this file): AI assistant development guide
-- **GGUF_SETUP.md**: Detailed GGUF model setup
-- **LLM_BEST_PRACTICES.md**: llama.cpp best practices
-- **IMPLEMENTATION_SUMMARY.md**: Migration history (Days 25-27)
-- **DEPLOYMENT_GUIDE.md**: Production deployment strategies
-- **VERIFICATION_REPORT.md**: Testing results and compliance
+### NDJSON / NoTransformationFoundException
+Handled by `OllamaClient.parseOllamaResponse()`.
 
-When to read which file:
-- 🚀 **Start the project?** → README.md → GGUF_SETUP.md
-- 🏗️ **Understand architecture?** → CLAUDE.md → IMPLEMENTATION_SUMMARY.md
-- 🚢 **Deploy to production?** → DEPLOYMENT_GUIDE.md
-- ⚡ **Optimize performance?** → LLM_BEST_PRACTICES.md
-- ✅ **Verify implementation?** → VERIFICATION_REPORT.md
+### ML Kit translation model not downloading
+Requires internet on first use. After download, works offline.
+
+### Response is one long line (no formatting)
+`TranslationService` translates line-by-line to preserve `\n`. If broken, check `translatePreservingStructure()`.
+
+### Cannot connect from emulator
+Use `10.0.2.2` in `SecureData.kt`. Test with:
+```bash
+adb shell curl http://10.0.2.2:11434/api/version
+```
+
+### Slow first response
+Normal — model cold start. `keep_alive: "5m"` keeps it warm for subsequent requests.

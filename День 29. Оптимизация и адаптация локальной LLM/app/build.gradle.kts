@@ -2,8 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.ksp)
-    kotlin("plugin.serialization") version "2.2.0"
+    kotlin("plugin.serialization") version "2.0.21"
 }
 
 android {
@@ -12,8 +11,8 @@ android {
 
     defaultConfig {
         applicationId = "com.example.aiwithlove"
-        minSdk = 26
-        targetSdk = 34  // Lowered from 36 to avoid 16KB page size requirement
+        minSdk = 25
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
@@ -42,7 +41,6 @@ android {
 }
 
 dependencies {
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -53,7 +51,6 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
 
-    // Ktor for HTTP MCP client
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.android)
     implementation(libs.ktor.client.content.negotiation)
@@ -62,12 +59,11 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 
-    // Koin for DI
+    implementation(libs.mlkit.translate)
+    implementation(libs.kotlinx.coroutines.play.services)
+
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.compose)
-
-    // Llamatik for GGUF model inference (llama.cpp wrapper)
-    implementation(libs.llamatik)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

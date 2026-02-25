@@ -1,61 +1,39 @@
 package com.example.aiwithlove.di
 
-import com.example.aiwithlove.data.repository.GGUFModelRepository
-import com.example.aiwithlove.llm.LLMClient
-import com.example.aiwithlove.llm.LlamaCppClient
-import com.example.aiwithlove.util.ModelCatalog
+import com.example.aiwithlove.ollama.OllamaClient
+import com.example.aiwithlove.ollama.OllamaOptions
+import com.example.aiwithlove.util.ServerConfig
+import com.example.aiwithlove.util.TranslationService
 import com.example.aiwithlove.viewmodel.ChatViewModel
-import com.example.aiwithlove.viewmodel.GGUFModelViewModel
-import io.ktor.client.*
-import io.ktor.client.engine.android.*
-import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 
 val appModule = module {
-
-    // HTTP client for model downloads
     single {
-        HttpClient(Android) {
-            expectSuccess = true
-        }
-    }
-
-    // GGUF model repository for downloads
-    single { GGUFModelRepository(androidContext(), get()) }
-
-    single<LLMClient> {
-        android.util.Log.d("AppModule", "Creating LlamaCpp LLMClient")
-
-        val modelsDir = java.io.File(androidContext().filesDir, "models")
-
-        // Find the first downloaded GGUF model
-        val downloadedModel = if (modelsDir.exists()) {
-            modelsDir.listFiles()?.firstOrNull { it.extension == "gguf" }
-        } else {
-            null
-        }
-
-        val modelPath = if (downloadedModel != null) {
-            android.util.Log.d("AppModule", "Found downloaded model: ${downloadedModel.name}")
-            downloadedModel.absolutePath
-        } else {
-            // Fall back to default model path (will show error if not downloaded)
-            val defaultPath = "${androidContext().filesDir}/models/${ModelCatalog.DEFAULT_MODEL.filename}"
-            android.util.Log.d("AppModule", "No model found, using default path: $defaultPath")
-            defaultPath
-        }
-
-        android.util.Log.d("AppModule", "Model path: $modelPath")
-
-        LlamaCppClient(
-            context = androidContext(),
-            modelPath = modelPath,
-            contextSize = 2048
+        OllamaClient(
+            serverUrl = ServerConfig.OLLAMA_SERVER_URL,
+            modelName = "llama3.2:3b",
+            systemPrompt = """
+                You are Yuki — an enthusiastic and knowledgeable guide to Japan with 10 years of experience.
+                Help travelers discover the best of Japan — from the busy streets of Tokyo to the serene
+                temples of Kyoto, hidden local izakaya, and legendary views of Mount Fuji. Give warm,
+                concrete advice about destinations, transport (JR Pass, IC cards), cultural etiquette,
+                local cuisine, and seasonal events. Occasionally include a Japanese phrase with translation.
+                Always be specific: name districts, stations, restaurants, and temples.
+            """.trimIndent(),
+            options = OllamaOptions(
+                temperature = 0.7,
+                num_predict = 512,
+                num_ctx = 4096,
+                top_p = 0.9,
+                repeat_penalty = 1.1
+            )
         )
     }
 
-    viewModel { ChatViewModel(llmClient = get()) }
-    viewModel { GGUFModelViewModel(repository = get()) }
-}
+    single { TranslationService() }
 
+    viewModel {
+        ChatViewModel(ollamaClient = get(), translationService = get())
+    }
+}

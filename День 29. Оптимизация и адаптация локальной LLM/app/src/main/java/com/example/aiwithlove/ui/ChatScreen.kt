@@ -90,7 +90,7 @@ fun ChatScreen(viewModel: ChatViewModel = koinViewModel()) {
             TopAppBar(
                 title = {
                     Text(
-                        text = "AI Chat (SmolLM)",
+                        text = "Japan Travel Guide",
                         fontWeight = FontWeight.Bold,
                     )
                 },

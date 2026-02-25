@@ -10,7 +10,6 @@
 local.properties
 gradle/
 .claude/
-*.task
 
 # Sensitive data - NEVER commit these files
 **/SecureData.kt

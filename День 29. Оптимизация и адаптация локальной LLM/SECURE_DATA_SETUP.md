@@ -1,108 +1,57 @@
 # Secure Data Configuration
 
-## 🔒 Security Setup
+All sensitive configuration is in `SecureData.kt`, excluded from version control.
 
-All sensitive configuration data has been moved to a separate `SecureData.kt` file that is excluded from version control.
-
-## 📁 File Structure
+## File Structure
 
 ```
 app/src/main/java/com/example/aiwithlove/util/
-├── SecureData.kt           ❌ NOT in Git (contains server configuration)
-├── SecureData.kt.example   ✅ In Git (template with placeholders)
-└── ServerConfig.kt         ✅ In Git (uses SecureData)
+├── SecureData.kt           (gitignored — contains server config)
+├── SecureData.kt.example   (committed — template)
+└── ServerConfig.kt         (committed — exposes OLLAMA_SERVER_URL)
 ```
 
-## 🚀 Setup for New Developers
+## Setup for New Developers
 
-If you're setting up this project for the first time:
-
-1. **Copy the example file:**
+1. Copy the example file:
    ```bash
    cd app/src/main/java/com/example/aiwithlove/util/
    cp SecureData.kt.example SecureData.kt
    ```
 
-2. **Edit SecureData.kt:**
-   - For **Android Emulator**: Use `SERVER_IP = "10.0.2.2"` (routes to host machine's localhost)
-   - For **Physical Device**: Use your machine's local IP (e.g., `"192.168.1.100"`)
-   - For **Remote Server**: Use server's public IP address
-   - Port should be `11434` (Ollama default)
+2. Edit `SecureData.kt`:
+   - **Android Emulator**: `SERVER_IP = "10.0.2.2"` (routes to host localhost)
+   - **Physical Device**: your machine's local IP (e.g. `"192.168.1.100"`)
+   - **Remote Server**: server's public IP
+   - Port: `11434` (Ollama default)
 
-3. **Verify it's gitignored:**
+3. Verify it's gitignored:
    ```bash
-   git status
-   # SecureData.kt should NOT appear in the list
+   git status   # SecureData.kt should NOT appear
    ```
 
-## 📝 What's in SecureData.kt
+## SecureData.kt Template
 
 ```kotlin
 object SecureData {
-    /**
-     * Ollama Server Configuration
-     *
-     * DEVELOPMENT SETUP (localhost):
-     * - Android Emulator: Use "10.0.2.2" (special emulator IP to reach host machine)
-     * - Physical Device: Use your machine's local network IP (e.g., "192.168.1.100")
-     *
-     * Default Ollama port is 11434
-     */
-    const val SERVER_IP = "10.0.2.2"   // Android emulator → host machine's localhost
-    const val SERVER_PORT = 11434      // Default Ollama port
-
-    /**
-     * Derived URLs
-     */
+    const val SERVER_IP = "10.0.2.2"
+    const val SERVER_PORT = 11434
     val OLLAMA_SERVER_URL: String
         get() = "http://$SERVER_IP:$SERVER_PORT"
 }
 ```
 
-## 🔐 Security Notes
+## Where It's Used
 
-1. **SecureData.kt** is listed in `.gitignore` and will NEVER be committed
-2. **SecureData.kt.example** is a template and safe to commit
-3. **ServerConfig.kt** references SecureData and is safe to commit
-4. **network_security_config.xml** - Allows cleartext HTTP for localhost development (required for Android 9+)
-5. **No authentication needed** - Ollama has no built-in authentication (use VPN/firewall for remote access)
+`ServerConfig.OLLAMA_SERVER_URL` is read by `AppModule.kt` when constructing `OllamaClient`.
 
-## ⚠️ Important Warnings
+## Updating the Server
 
-- **NEVER** commit `SecureData.kt` to Git
-- **NEVER** share `SecureData.kt` publicly
-- **ALWAYS** use `SecureData.kt.example` as a template
-- If you accidentally commit sensitive data:
-  1. Remove it immediately from Git history
-  2. Rotate/change all exposed credentials
-  3. Update server security
+Edit `SecureData.kt` and rebuild. `ServerConfig` picks it up automatically — no other files need changing.
 
-## 🔍 Verification
+## Security Notes
 
-Check if SecureData.kt is properly excluded:
-
-```bash
-# Should return empty (file is ignored)
-git status | grep SecureData.kt
-
-# Example file should be tracked
-git status | grep SecureData.kt.example
-```
-
-## 📦 Where Secure Data is Used
-
-The app uses `ServerConfig.OLLAMA_SERVER_URL` throughout the codebase:
-
-- **OllamaClient.kt** - HTTP client initialization for Ollama REST API
-- **ChatViewModel.kt** - AI chat communication
-- **AppModule.kt** - Dependency injection configuration
-
-## 🛠️ Updating Server Configuration
-
-To change the server IP/port:
-
-1. Edit `SecureData.kt` (NOT the example file)
-2. Rebuild the app
-3. The changes will apply immediately
-
-No need to update multiple files!
+- `SecureData.kt` is in `.gitignore` and will never be committed
+- `ServerConfig.kt` only exposes `OLLAMA_SERVER_URL` — safe to commit
+- Ollama has no built-in authentication — use VPN or firewall for remote access
+- `network_security_config.xml` allows cleartext HTTP to localhost (required for Android 9+)

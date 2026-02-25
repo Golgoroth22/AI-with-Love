@@ -3,71 +3,67 @@ package com.example.aiwithlove.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.aiwithlove.data.model.Message
-import com.example.aiwithlove.llm.ChatMessage
-import com.example.aiwithlove.llm.LLMClient
+import com.example.aiwithlove.ollama.OllamaClient
+import com.example.aiwithlove.ollama.OllamaMessage
+import com.example.aiwithlove.util.TranslationService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+private const val YUKI_GREETING_RU =
+    "Konnichiwa! Я Юки, твой личный гид по Японии. Спрашивай о направлениях, еде, транспорте, культурных советах или скрытых жемчужинах Японии!"
+
+private const val YUKI_GREETING_EN =
+    "Konnichiwa! I'm Yuki, your personal guide to Japan. Ask me about destinations, food, transportation, cultural tips, or hidden gems of Japan!"
+
 class ChatViewModel(
-    private val llmClient: LLMClient
+    private val ollamaClient: OllamaClient,
+    private val translationService: TranslationService
 ) : ViewModel() {
 
     private val _messages = MutableStateFlow<List<Message>>(
-        listOf(
-            Message(
-                text = "Привет! Я AI-ассистент на базе Llama 3.2 1B. Работаю полностью офлайн с использованием llama.cpp! Задай мне любой вопрос!",
-                isFromUser = false
-            )
-        )
+        listOf(Message(text = YUKI_GREETING_RU, isFromUser = false))
     )
     val messages: StateFlow<List<Message>> = _messages.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    // Store conversation history for LLM context
-    private val conversationHistory = mutableListOf<ChatMessage>()
+    private val conversationHistory = mutableListOf(
+        OllamaMessage(role = "assistant", content = YUKI_GREETING_EN)
+    )
 
     fun sendMessage(userText: String) {
         if (userText.isBlank() || _isLoading.value) return
 
-        // Add user message to UI
         val userMsg = Message(text = userText, isFromUser = true)
         _messages.value = _messages.value + userMsg
 
-        // Add user message to conversation history
-        conversationHistory.add(ChatMessage(role = "user", content = userText))
-
         _isLoading.value = true
 
-        // Add thinking indicator
         val thinkingMsg = Message(text = "Думаю...", isFromUser = false)
         _messages.value = _messages.value + thinkingMsg
         val thinkingIndex = _messages.value.size - 1
 
         viewModelScope.launch {
             try {
-                // Call LLM with full conversation history
-                val aiResponse = llmClient.chat(conversationHistory)
+                val englishInput = translationService.toEnglish(userText)
+                conversationHistory.add(OllamaMessage(role = "user", content = englishInput))
 
-                // Add AI response to conversation history
-                conversationHistory.add(ChatMessage(role = "assistant", content = aiResponse))
+                val englishResponse = ollamaClient.chat(conversationHistory)
+                conversationHistory.add(OllamaMessage(role = "assistant", content = englishResponse))
 
-                // Update UI with AI response
-                val responseMsg = Message(
-                    text = aiResponse,
-                    isFromUser = false
-                )
+                val russianResponse = translationService.toRussian(englishResponse)
 
+                val responseMsg = Message(text = russianResponse, isFromUser = false)
                 val currentMessages = _messages.value.toMutableList()
                 currentMessages[thinkingIndex] = responseMsg
                 _messages.value = currentMessages
 
             } catch (e: Exception) {
                 val errorMsg = Message(
-                    text = "❌ Ошибка: ${e.message}\n\nПроверьте, что модель загружена и готова к работе.",
+                    text = "❌ Ошибка: ${e.message}\n\nПроверьте подключение к Ollama серверу.",
                     isFromUser = false
                 )
 
@@ -83,15 +79,9 @@ class ChatViewModel(
     }
 
     fun clearChat() {
-        // Clear conversation history
         conversationHistory.clear()
+        conversationHistory.add(OllamaMessage(role = "assistant", content = YUKI_GREETING_EN))
 
-        // Reset UI messages
-        _messages.value = listOf(
-            Message(
-                text = "Привет! Я AI-ассистент на базе Llama 3.2 1B. Работаю полностью офлайн с использованием llama.cpp! Задай мне любой вопрос!",
-                isFromUser = false
-            )
-        )
+        _messages.value = listOf(Message(text = YUKI_GREETING_RU, isFromUser = false))
     }
 }
